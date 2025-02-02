@@ -1,0 +1,51 @@
+\documentclass[letter,12pt]{article}
+%\usepackage{hyperref}
+
+\usepackage{noweb}
+\noweboptions{smallcode}
+\noweboptions{externalindex}
+
+%\usepackage{graphicx}
+\newcommand{\url}[1]{#1}
+\setlength{\hoffset}{-0.6in}
+\setlength{\textwidth}{460pt}
+
+%\usepackage[dvips]{pstcol} % To use the standard "color" package with PSTricks
+%\usepackage{pst-plot}
+
+
+\input{../etc/lmacros.tex}
+\title{ Pliant-Perl Binding }
+\author{Boris Reitman}
+
+
+\begin{document}
+
+
+\maketitle
+%\pagebreak
+\abstract{
+The goal of the Pliant-Perl binding is to allow Pliant programmers to use 
+existing CPAN modules, of which there are a vast amount (\url{http://search.cpan.org}).
+As well, Perl programmers who would like to switch to Pliant can migrate smoothly.
+}
+\tableofcontents
+
+\section{What we want to implement}
+We would like to allow to use existing CPAN perl modules from Pliant without too
+much overhead. In order to do this we need to be able to manipulate the return 
+values from those modules' API and also to pass Pliant variable as parameters to
+those modules.  This is solved by implementing proxy objects that implement perl
+hashes and array in pliant, but look like native pliant objects.
+
+In addition to wrapping datatypes extra care must be taken when calling perl
+functions and also when passing Pliant callbacks to them.
+
+\include{hash}
+\include{array}
+\include{call}
+\include{callback}
+
+
+%\include{Makefile}
+\end{document}

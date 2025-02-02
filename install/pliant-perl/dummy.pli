@@ -1,0 +1,8 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+
+
+gvar PerlArray array
+
+array:0 := 0

@@ -1,0 +1,9 @@
+- PerlArray set_from_name doesn't work
+
+- fix casting with perllist
+- fix 070_fork test to work in the test framework
+- polish "each" support for perl datatypes
+- fix perl_function to mix array style and scalar style arguments
+- more implicit callback mechanism, and binding between pliant and perl.
+  
+

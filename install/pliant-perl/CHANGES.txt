@@ -1,0 +1,21 @@
+v0.3.5
+  - Fixed bugs related to calling subroutine
+v0.3.4
+  - works under windows + ActivePerl 5.8
+  - has a test framework
+v0.3.3
+  - Comes with working multiline support, see lexer/multiline_string.html for more info.
+  - Bug fixes
+v0.3.2
+  - Fix Bool <-> PerlScalar conversion support
+v0.3.1
+  - New keyword perl_function that automatically handles function arguments and return value
+  - Added comparison operator for perl scalars
+  - Fixed is_undef method on PerlScalar and special PerlScalar perl_undef now works
+  - Changed versioning system to use three numbers.
+v0.3
+  - Fix bugs related to calling methods on a returned scalar (on a PerlList)
+  - Change the Makefile system
+v0.2
+  - Allow to precompile perl module, and add pliperl shell script to make it easy
+  - to use the precompiled image

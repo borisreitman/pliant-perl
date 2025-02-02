@@ -1,0 +1,440 @@
+<HTML><HEAD><TITLE>Pliant Perl Binding</TITLE>
+
+<meta NAME="DESCRIPTION" CONTENT="Pliant-Perl Binding -- Pliant Perl -- Access CPAN modules from Pliant">
+
+<meta NAME="keywords" CONTENT="pliant perl,perl pliant,pliant CPAN,literate programming example,pliant library"> 
+
+<meta name="revisit" content="1 days">
+<meta name="expires" content="never">
+<meta name="robots" content="index,follow">
+<meta name="distribution" content="global">
+<meta name="rating" content="general">
+<link rel="stylesheet" type="text/css" href="/style.css" media="screen,projection">
+<meta http-equiv=Content-Type content="text/html; charset=iso-8859-1">
+<script src="util.js" language="JavaScript" type="text/javascript"></script>
+
+<BODY>
+<H2> Pliant Perl Binding </H2> 
+<p>This is a homepage for the Pliant Perl binding whose goal is to give
+Pliant access to <A HREF="http://search.cpan.org">CPAN</A>, a large library
+of modules written in Perl. This is accomplished
+by embedding a perl interpreter inside pliant.
+<P> With this binding you can:
+<UL> 
+	<LI> Use DBI module from Pliant to issue SQL queries.
+	<LI> Use wxPerl module to create GUI applications with Pliant.
+	<LI> Use many other CPAN modules.
+</UL> 
+	and,
+<UL> 
+	<LI> Call perl functions with variable number of arguments
+	<LI> Invoke methods of Perl objects
+	<LI> Subclass perl classes with implementation written in Pliant
+	<LI> Manipulate perl's scalars, arrays and hashes, and references
+	<LI> Pass callbacks written in Pliant to APIs originally designed to work with callbacks
+	     written in Perl.
+</UL> 
+
+<p> Recent changes are listed in <A HREF="CHANGES.txt">CHANGES.txt</A>.
+
+<H3> Installation instructions </H3> 
+You can install from binaries or from CVS.
+<p>
+Binaries: 
+<UL> 
+<LI> Linux Binary for Perl 5.6: <A HREF="files/pliant_perl-0.3.5-bin-linux-5.6.tgz">pliant-perl-0.3.5-bin-linux-5.6.tgz</A>,
+<LI> Linux Binary for Perl 5.8: <A HREF="files/pliant_perl-0.3.5-bin-linux-5.8.tgz">pliant-perl-0.3.5-bin-linux-5.8.tgz</A>,
+  <BR> (perl -v will tell what version you want.)
+<LI> Windows Binary: <A HREF="files/pliant_perl-0.3.5-bin-windows.zip">pliant-perl-0.3.5-bin-windows.zip</A>.
+  <BR>  Place <A HREF="files/msvcr80.dll">msvcr80.dll</A> in c:\winnt\system32 if you don't have it on your system.
+</UL> 
+
+Installation instructions (including CVS instructions) 
+are in this <a href="README.txt">README</A> file.
+
+<P> More on CVS at the <A HREF="http://sourceforge.net/cvs/?group_id=96772">pliant-perl cvs sourceforge page</A>.
+
+<h3>Example: Access PostgreSQL through Perl's DBI</h3>
+<p>
+Here is a working sample program to access a PostgreSQL database 
+through perl's DBI layer.  More examples exist in 
+'pliantx/language/perl/examples' directory.
+
+<P>  <TABLE bgcolor="#000055"> <TR> <TD> 
+<font color="white">
+<pre>
+<font color="#ffff00"><b>module</b></font> &quot;/pliantx/lexer/multiline_string.pli&quot;
+<font color="#ffff00"><b>module</b></font> &quot;/pliantx/language/perl.pli&quot; # THE KEY MODULE TO USE
+<font color="#ffff00"><b>module</b></font> &quot;/pliant/language/compiler.pli&quot;
+
+<font color="#ffff00"><b>perl_eval</b></font> {{ <font color="#00ffff">use</font> <font color="#00ffff">DBI</font>; }}
+<font color="#ffff00"><b>gvar</b></font> PerlScalar dbh ref_records
+
+dbh := <font color="#ffff00"><b>perl_static</b></font> DBI connect &quot;dbi:Pg:dbname=test_db&quot; "" ""
+ref_records := dbh selectall_arrayref &quot;select * from products;&quot;
+
+<font color="#ffff00"><b>gvar</b></font> PerlArray records := ref_records array   #deref 
+<font color="#ffff00"><b>gvar</b></font> PerlArray record
+
+<font color="#ffff00"><b>for</b></font> (<font color="#ffff00"><b>gvar</b></font> <font color="#00ff00">Int</font> i) 0 records:size-1
+  console &quot;Record &quot; i eol
+  record := records:i:array
+  <font color="#ffff00"><b>for</b></font> (<font color="#ffff00"><b>gvar</b></font> <font color="#00ff00">Int</font> j) 0 record:size-1
+    console j &quot;: &quot;  record:j eol
+
+dbh disconnect </pre>
+</font>
+</TD> </TR> </TABLE> 
+
+<P> Here's the output:
+
+<PRE>
+Record 0
+0: A1
+1: Apple
+Record 1
+0: A2
+1: Orange
+Record 2
+0: A3
+1: Banana
+Record 3
+0: A4
+1: Peach
+</PRE>
+
+<H3> Callback example </H3> 
+Here is another example that illustrates passing pliant callbacks to perl.
+
+<P>  <TABLE bgcolor="#000055" style="color: white;"> <TR> <TD> 
+<pre>
+<font color="#ffff00"><b>module</b></font> <font color="#ff40ff"><b>&quot;/pliantx/lexer/multiline_string.pli&quot;</b></font>
+<font color="#ffff00"><b>module</b></font> <font color="#ff40ff"><b>&quot;/pliant/language/compiler.pli&quot;</b></font>
+<font color="#ffff00"><b>module</b></font> <font color="#ff40ff"><b>&quot;/pliantx/language/perl.pli&quot;</b></font>
+
+<font color="#ffff00"><b>perl_eval</b></font> {{
+<font color="#ffffff"><b>  </b></font><font color="#ffff00"><b>sub</b></font><font color="#ffffff"><b> </b></font><font color="#00ffff"><b>run_callback</b></font><font color="#ffffff"><b> </b></font>{
+    <font color="#ffff00"><b>my</b></font> <font color="#00ffff"><b>$sub</b></font> = <font color="#00ffff"><b>$_</b></font>[<font color="#ff40ff"><b>0</b></font>];
+    <font color="#ffff00"><b>print</b></font> <font color="#ff40ff"><b>&quot;</b></font><font color="#ff40ff"><b>in run_callback </b></font><font color="#00ffff"><b>$sub</b></font><font color="#ff40ff">\n</font><font color="#ff40ff"><b>&quot;</b></font>;
+    <font color="#ffff00"><b>my</b></font> <font color="#00ffff"><b>@a</b></font> = <font color="#00ffff"><b>&amp;$sub</b></font>(<font color="#ff40ff"><b>&quot;</b></font><font color="#ff40ff"><b>a</b></font><font color="#ff40ff"><b>&quot;</b></font>,<font color="#ff40ff"><b>&quot;</b></font><font color="#ff40ff"><b>b</b></font><font color="#ff40ff"><b>&quot;</b></font>,<font color="#ff40ff"><b>&quot;</b></font><font color="#ff40ff"><b>c</b></font><font color="#ff40ff"><b>&quot;</b></font>);
+    <font color="#ffff00"><b>print</b></font> <font color="#ff40ff"><b>&quot;</b></font><font color="#ff40ff"><b>retval = </b></font><font color="#00ffff"><b>@a</b></font><font color="#ff40ff">\n</font><font color="#ff40ff"><b>&quot;</b></font>;
+  }
+}}
+
+<font color="#ffff00"><b>function</b></font> hello array -&gt; retval
+  <font color="#ffff00"><b>arg_rw</b></font> PerlArray array
+  <font color="#ffff00"><b>arg</b></font> PerlArray retval
+
+  console <font color="#ff40ff"><b>&quot;Inside hello&quot;</b></font> eol
+  each (<font color="#ffff00"><b>var</b></font> PerlScalar parameter) array
+    console <font color="#ff40ff"><b>&quot;Got arg = &quot;</b></font> parameter eol
+
+  <font color="#00ffff"># set return value</font>
+  retval:<font color="#ff40ff"><b>0</b></font> := <font color="#ff40ff"><b>1</b></font>
+  retval:<font color="#ff40ff"><b>1</b></font> := <font color="#ff40ff"><b>&quot;a&quot;</b></font>
+
+<font color="#ffff00"><b>perl</b></font> run_callback <font color="#ffff00"><b>perl_callback</b></font>:hello
+
+<font color="#ffff00"><b>perl_define</b></font> <font color="#ff40ff"><b>&quot;hello&quot;</b></font> hello
+<font color="#ffff00"><b>perl_eval</b></font> <font color="#ff40ff"><b>&quot;hello(1 .. 5);&quot;</b></font>
+
+</pre>
+</TD> </TR> </TABLE> 
+
+Here's the output,
+<PRE>
+in run_callback CODE(0x8083c80)
+Inside hello
+Got arg = a
+Got arg = b
+Got arg = c
+retval = 1 a
+Inside hello
+Got arg = 1
+Got arg = 2
+Got arg = 3
+Got arg = 4
+Got arg = 5
+</PRE>
+
+<H4> Important note about {{ }} syntax </H4> 
+Special care must be taken when using {{  and }} syntax at the top of the file.
+<p>
+When the {{ and }}  syntax comes in the beginning of a file, make sure
+that there is a line with some Pliant instruction above it.  In above
+example we have two lines for the "module" keywords for compiler.pli
+and perl.pli packages.  The module line for the multiline_string.pli
+module does not count, because this module defines the {{ and }} syntax.
+<p>
+If in the example above, the module lines were reordered such that the multiline
+module came last, the program would not compile.  Therefore, as a general
+practice, use the multiline_string.pli module before the perl.pli module.
+<p>
+If your file only has one module directive at the top, which presumably
+includes perl and multiline modules as submodules, you need to put
+a dummy line before a use of {{ }} when it is at the top of the file.
+You can put "true" by itself on a line, for example:
+<pre>
+# start of file
+module "my_util_module.pli"
+true
+perl_eval {{
+  print "works\n";
+}}
+#...
+</pre>
+
+<H3> Class Implementation example </H3> 
+
+This illustrates how it is possible to subclass existing Perl classes and
+override certain behavior.  Here we subclass the parent class Parent with class 
+T and implement its new method in Pliant.   The method 'Parent::dump' is inherited.
+
+<P>  <TABLE bgcolor="#000055" style="color: white;"> <TR> <TD> 
+<pre>
+<font color="#ffff00"><b>module</b></font> <font color="#ff40ff"><b>&quot;/pliantx/lexer/multiline_string.pli&quot;</b></font>
+<font color="#ffff00"><b>module</b></font> <font color="#ff40ff"><b>&quot;/pliant/language/compiler.pli&quot;</b></font>
+<font color="#ffff00"><b>module</b></font> <font color="#ff40ff"><b>&quot;/pliantx/language/perl.pli&quot;</b></font>
+
+<font color="#ffff00"><b>perl_eval</b></font> {{
+<font color="#00ff00"><b>  </b></font><font color="#ffff00"><b>package</b></font><font color="#00ff00"><b> Parent;</b></font>
+<font color="#ffffff"><b>  </b></font><font color="#ffff00"><b>sub</b></font><font color="#ffffff"><b> </b></font><font color="#00ffff"><b>new</b></font><font color="#ffffff"><b> </b></font>{
+    <font color="#ffff00"><b>return</b></font> <font color="#ff6060"><b>bless</b></font> {},
+    <font color="#ffff00"><b>shift</b></font>();
+  }
+<font color="#ffffff"><b>  </b></font><font color="#ffff00"><b>sub</b></font><font color="#ffffff"><b> </b></font><font color="#00ffff"><b>dump</b></font><font color="#ffffff"><b> </b></font>{
+    <font color="#ffff00"><b>my</b></font> <font color="#00ffff"><b>$self</b></font> = <font color="#ffff00"><b>shift</b></font>;
+    <font color="#ffff00"><b>print</b></font> <font color="#00ffff"><b>$self</b></font>-&gt;{<font color="#00ffff"><b>message</b></font>}, <font color="#ff40ff"><b>&quot;</b></font><font color="#ff40ff">\n</font><font color="#ff40ff"><b>&quot;</b></font>;
+  }
+
+<font color="#00ff00"><b>  </b></font><font color="#ffff00"><b>package</b></font><font color="#00ff00"><b> T;</b></font>
+  <font color="#ffff00"><b>our</b></font> <font color="#00ffff"><b>@ISA</b></font> = <font color="#00ffff"><b>qw</b></font>(<font color="#00ffff"><b>Parent</b></font>);
+}}
+
+<font color="#ffff00"><b>perl_function</b></font> new_T classname -&gt; self
+  <font color="#ffff00"><b>arg</b></font> <font color="#00ff00"><b>Str</b></font> classname ; <font color="#ffff00"><b>arg</b></font> PerlScalar self
+
+  self := <font color="#ffff00"><b>perl_ref</b></font> (<font color="#ffff00"><b>var</b></font> PerlHash hash)
+  self bless classname
+
+  self:hash:<font color="#ff40ff"><b>&quot;message&quot;</b></font> := <font color="#ff40ff"><b>&quot;hello&quot;</b></font>
+  self:hash:<font color="#ff40ff"><b>&quot;_data&quot;</b></font>   := <font color="#ff40ff"><b>10000</b></font> <font color="#00ffff"># or memory address of some Pliant data</font>
+
+<font color="#ffff00"><b>perl_define</b></font> <font color="#ff40ff"><b>&quot;T::new&quot;</b></font> new_T
+
+<font color="#ffff00"><b>gvar</b></font> PerlScalar t := <font color="#ffff00"><b>perl_new</b></font> T
+t dump
+</TD> </TR> </TABLE> 
+
+<H3> Draw gui with wxWindows library (via wxPerl)</H3> 
+The <A HREF="http://www.wxwindows.org">wxWindows</A> library is a cross platform
+GUI library that looks correctly under different interfaces (windows, gtk+, mac-os).
+The trouble is that it is in C++ and to use it in pliant we need to write C 
+wrappers. Turns out that there is already lots of similar work done to 
+bring wxWindows into Perl.  So why do chore work twice ?  We can access
+wxWindows api via perl.  
+<P>  <TABLE bgcolor="#000055" style="color: white;"> <TR> <TD> 
+<pre>
+<font color="#00ffff"># this shows how to use the WxWindows C++ library through its Perl binding</font>
+
+<font color="#ffff00"><b>module</b></font> <font color="#ff40ff"><b>&quot;/pliantx/lexer/multiline_string.pli&quot;</b></font>
+<font color="#ffff00"><b>module</b></font> <font color="#ff40ff"><b>&quot;/pliant/language/compiler.pli&quot;</b></font>
+<font color="#ffff00"><b>module</b></font> <font color="#ff40ff"><b>&quot;/pliantx/language/perl.pli&quot;</b></font>
+
+<font color="#ffff00"><b>perl_eval</b></font> {{
+  <font color="#00ffff"><b>use</b></font> <font color="#00ffff"><b>strict</b></font>;
+  <font color="#00ffff"><b>use</b></font> <font color="#00ffff"><b>Wx</b></font>;
+  <font color="#00ffff"><b>use</b></font> <font color="#00ffff"><b>Data::Dumper</b></font>;
+
+  <font color="#00ffff"># every Wx program must have a Wx::App-derived class</font>
+<font color="#00ff00"><b>  </b></font><font color="#ffff00"><b>package</b></font><font color="#00ff00"><b> MyApp;</b></font>
+  <font color="#00ffff"><b>use</b></font> <font color="#00ffff"><b>vars</b></font> <font color="#00ffff"><b>qw</b></font>(<font color="#00ffff"><b>@ISA</b></font>);
+  <font color="#00ffff"><b>@ISA</b></font> = <font color="#00ffff"><b>qw</b></font>(<font color="#00ffff"><b>Wx::App</b></font>); }}
+
+<font color="#ffff00"><b>perl_function</b></font> MyApp_OnInit self -&gt; retval
+  <font color="#ffff00"><b>arg</b></font> PerlScalar self retval
+  <font color="#ffff00"><b>var</b></font> PerlScalar frame := <font color="#ffff00"><b>perl_new</b></font> MyFrame 
+  self SetTopWindow frame
+  frame Show <font color="#ff40ff"><b>1</b></font>
+  retval := <font color="#ff40ff"><b>1</b></font>
+
+<font color="#ffff00"><b>perl_define</b></font> <font color="#ff40ff"><b>&quot;MyApp::OnInit&quot;</b></font> MyApp_OnInit
+
+<font color="#ffff00"><b>perl_eval</b></font> {{
+<font color="#00ff00"><b>  </b></font><font color="#ffff00"><b>package</b></font><font color="#00ff00"><b> MyFrame;</b></font>
+  <font color="#00ffff"><b>use</b></font> <font color="#00ffff"><b>Wx::Event</b></font>;
+  <font color="#00ffff"><b>@MyFrame::ISA</b></font> = <font color="#00ffff"><b>qw</b></font>(<font color="#00ffff"><b>Wx::Frame</b></font>); }}
+
+<font color="#ffff00"><b>gvar</b></font> PerlScalar wxDefaultPosition := <font color="#ffff00"><b>perl</b></font> <font color="#ff40ff"><b>&quot;Wx::wxDefaultPosition&quot;</b></font>
+<font color="#ffff00"><b>gvar</b></font> PerlScalar wxITALIC_FONT     := <font color="#ffff00"><b>perl</b></font> <font color="#ff40ff"><b>&quot;Wx::wxITALIC_FONT&quot;</b></font>
+
+<font color="#00ffff"># helper function</font>
+<font color="#ffff00"><b>function</b></font> wx_vec x y -&gt; point
+  <font color="#ffff00"><b>arg</b></font> <font color="#00ff00"><b>Float</b></font> x y
+  <font color="#ffff00"><b>arg</b></font> PerlScalar point
+  <font color="#ffff00"><b>var</b></font> PerlArray pair
+  pair <font color="#ff40ff"><b>0</b></font> := x
+  pair <font color="#ff40ff"><b>1</b></font> := y
+  point := <font color="#ffff00"><b>perl_ref</b></font> pair
+
+<font color="#ffff00"><b>perl_function</b></font> MyFrame_OnPaint self event -&gt; retval
+  <font color="#ffff00"><b>arg</b></font> PerlScalar self event retval
+
+  <font color="#ffff00"><b>var</b></font> PerlScalar dc := <font color="#ffff00"><b>perl_new</b></font> <font color="#ff40ff"><b>&quot;Wx::PaintDC&quot;</b></font> self
+  dc SetFont wxITALIC_FONT
+  dc DrawText <font color="#ff40ff"><b>&quot;Hello, world!&quot;</b></font> <font color="#ff40ff"><b>10</b></font> <font color="#ff40ff"><b>10</b></font>
+
+<font color="#ffff00"><b>perl_define</b></font> <font color="#ff40ff"><b>&quot;MyFrame::OnPaint&quot;</b></font> MyFrame_OnPaint
+
+<font color="#ffff00"><b>perl_function</b></font> new_MyFrame classname -&gt; self
+  <font color="#ffff00"><b>arg</b></font> PerlScalar classname self
+  self := <font color="#ffff00"><b>perl_super</b></font> MyFrame new perl_undef -<font color="#ff40ff"><b>1</b></font> <font color="#ff40ff"><b>&quot;Hello, world!&quot;</b></font> wxDefaultPosition (wx_vec <font color="#ff40ff"><b>350</b></font> <font color="#ff40ff"><b>100</b></font>)
+  <font color="#ffff00"><b>perl</b></font> 'Wx::Event::EVT_PAINT' self <font color="#ffff00"><b>perl_callback</b></font>:MyFrame_OnPaint
+
+<font color="#ffff00"><b>perl_define</b></font> <font color="#ff40ff"><b>&quot;MyFrame::new&quot;</b></font> new_MyFrame
+
+<font color="#00ffff"># MAIN:</font>
+<font color="#ffff00"><b>gvar</b></font> PerlScalar app := <font color="#ffff00"><b>perl_new</b></font> MyApp
+app MainLoop
+</TD> </TR> </TABLE> 
+
+<H3>Syntax file for Vim </H3> 
+Grab <A HREF="pliant.vim">pliant.vim</A> and place it in $HOME/.vim/syntax directory.
+Edit it to match the location of the perl syntax file.
+<P> 
+The implementation of the pliant-perl project is in the Literate Programming
+style, using the noweb tool.  Here is a noweb syntax file <A
+HREF="files/nw.vim">nw.vim</A>.  Drop it into $HOME/.vim/syntax/ directory and 
+edit it to match the location of perl and pliant syntax files on your system.
+<P> 
+Configure vim to associate syntax files with extensions .pli and, if you want, .nw.
+To do this, copy filetype.vim from the vim's install direcotry, and put it into
+$HOME/.vim. Edit it and add, 
+<PRE>
+" Pliant
+au BufNewFile,BufRead *.pli     setf pliant
+
+" NOWEB
+au BufNewFile,BufRead *.nw      setf nw
+</PRE>
+There is probably a better way to do this, but that worked for me.
+
+<h3>The API in a nutshell</h3>
+<DL> 
+<DT> PerlScalar, PerlArray, PerlHash <DD> These types wrap perl's array, hash, and
+scalar. Iterate through the
+PerlHash keys with 'each' keyword (see hash.pli example)
+<DT> perl  <DD> Used to call functions or methods on an object,
+<PRE>
+perl func_name arg1 arg2 ...
+perl obj method_name arg1 arg2 ...
+</PRE>
+Here "obj" is a blessed PerlScalar.  You don't have to use the "perl" keyword
+when invoking a method on a constructed object.  It will automatically figure
+out that this is a perl call, because obj is of type PerlScalar:
+<PRE>
+obj method_name arg1 arg2 ...
+</PRE>
+
+<DT> perl_static, perl_super, perl_new  <DD> Used to call static class methods.
+"perl_static" allows the most general form, "perl_super" calls a
+static method in the parent (SUPER) class.  "perl_new"  is a shortcut to call the "new" constructor.
+Examples:
+<PRE>
+dbh := perl_static DBI connect data_source data_username data_password
+
+# the following two are equivalent
+obj := perl_new T arg1 arg2 ...
+obj := perl_static T new arg1 arg2 ...
+
+# the following two are equivalent
+obj := perl_super  T new arg1 arg2 ...
+obj := perl_static T "T::SUPER::new" arg1 arg2 ...
+
+</PRE>
+The lasts example is usefull to call the parent constructor in the
+implementation of T::new (see wxperl.pli example, MyFrame::new implementation).
+
+<DT> perl_function  <DD> Used to tell that this function may be called from
+perl.  This keyword will not be needed in the future, as everything will be
+autodetected.
+<PRE>
+    perl_function non_perl_aware i j k -&gt; r
+      arg Str i j ; arg Int k ; arg Str r
+      console i j k eol
+      r := 10
+    
+    perl_function somewhat_perl_aware obj i j -&gt; r
+      arg PerlScalar obj ; arg Int i j r
+      obj dump  #call method on perl object
+      console i j eol
+      r := 20
+
+    function very_perl_aware args -&gt; retval
+      arg PerlArray args retval
+      arg PerlScalar obj := args 0
+      arg Int i j 
+      i := args 1 ; j := args 2 
+      obj dump
+      console i j eol
+      retval 0 := 20
+      # retval 1 := 30  # return multiple values
+
+    perl iterate_over_datastructure   perl_callback:non_perl_aware
+    perl iterate_another_datastructure perl_callback:somewhat_perl_aware
+    perl iterate_another_datastructure perl_callback:very_perl_aware
+</PRE>
+
+Here is what the 'perl_function' keyword does in the background.  It will
+create a function with the same name but with the signature  (PerlArray
+-&gt; PerlArray) which will delegate the call to the actual function.
+
+<DT> perl_define  <DD> Used to bind a perl function name to pliant implementation.
+<PRE>
+perl_define "hello" hello
+perl_define "T::new" new_T
+</PRE>
+The Pliant function must either be declared with 'perl_function' or must
+receive a PerlArray and return a PerlArray.
+
+<DT> perl_callback  <DD> Similar to perl_define, but is used to convert
+a pliant function address to a perl callback.
+<PRE>
+gvar PerlScalar callback :=  perl_callback hello 
+perl run_callback callback
+</PRE>
+
+<DT> perl_ref  <DD> Make a perl reference to PerlScalar, PerlArray or
+PerlHash object.   To dereference it, use the 'hash', 'array' or 'scalar' method.  
+<PRE>
+var PerlHash hash
+var PerlScalar r_hash := perl_ref hash
+
+r_hash:hash "month" := "May"
+</PRE>
+
+<DT> perl_eval  <DD> Eval a string of perl code. 
+Usefull to declare perl functions and "use" some perl modules.
+You may use '{{' and '}}' as string delimiters if you import
+the multiline_string module.  Note that the escape of third to last brace
+is used to avoid closing the string too early "\}}}". An alternative is to put 
+a space before the last "}}".
+<PRE>
+perl_eval {{ 
+  use Data::Dumper;
+  sub run_callback { 
+    my $sub = shift; 
+    print "in run_callback $sub\n"; 
+    my @a = &amp;$sub("a","b","c"); 
+    print "retval = @a\n";   
+  \}}}
+</PRE>
+</DL> 
+
+<h3> See Also </h3>
+<A HREF="http://fullpliant.org">Pliant homepage</A> | <A HREF="http://pr.cams.ehess.fr/">Pliant Tutorial</A> | <A HREF="http://zhar.net/projects/pliant/">Pliant Links and Examples</A> | <A HREF="http://search.cpan.org">CPAN</A>
+
+<h3> Author </h3>
+Boris Reitman <pre>( B O R I S   @   R E I T M A N   .   N A M E )</PRE>
+
+</BODY></HTML> 

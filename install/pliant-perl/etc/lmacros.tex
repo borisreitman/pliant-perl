@@ -1,0 +1,40 @@
+\newcommand{\Term}[1]{\textsl{#1}}
+
+% MACROS FOR API DOCUMENTATION
+\newcommand{\D}[1]{\begin{description}#1\end{description}}
+\newcommand{\I}[1]{\begin{itemize}#1\end{itemize}}
+\newcommand{\fitem}[2]{\item \textsl{#1} #2}
+\newcommand{\Doc}[1]{
+  \vspace{3ex}
+%  \ovalbox{
+  \framebox{
+  \parbox[c]{5in}{
+    {\small\D{#1}\normalfont}
+  }
+  }
+ }
+
+\newcommand{\Purp}[1]{ \fitem{Purpose: }{#1}}
+\newcommand{\Name}[2]{ \fitem{#1:}{#2}}
+\newcommand{\Func}[3]{ \Doc{ \Name{Function}{#1}{\Purp{#2} #3} } }
+\newcommand{\Meth}[3]{ \Doc{ \Name{Method}{#1}{\Purp{#2} #3} } }
+
+% \Pre sets up a place for just some text, and also for some arguments
+%\newcommand{\Args}[1]{  \fitem{Args:}{\D{#1 \item \,}} \vspace{-5ex}} 
+
+% Args opens a list environment, but use \Arg as items.
+\newcommand{\Args}[1]{  \fitem{Args:}{\D{#1} }  }
+\newcommand{\Arg}[2]{  \fitem{\textit{#1:}}{#2}}
+\newcommand{\OneArg}[2]{ \Args{\Arg{#1}{#2}}}
+
+\newcommand{\Pre}[1]{  \fitem{Pre:}{#1}  }
+\newcommand{\Ret}[1]{ \fitem{Return value:}{#1}}
+\newcommand{\Die}[1]{ \fitem{Exceptions:}{#1}}
+\newcommand{\Post}[1]{ \fitem{Post:}{#1}}
+\newcommand{\Notes}[1]{ \fitem{Notes:}{#1}}
+
+\newcommand{\TODO}[1]{{\textbf{TODO:} \textit{#1}}}
+\newcommand{\Imp}[1]{{\textbf{Important:} \textit{#1}}}
+
+
+
