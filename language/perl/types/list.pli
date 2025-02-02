@@ -1,0 +1,38 @@
+module "/pliant/language/unsafe.pli"
+module "../cperl.pli"
+module "scalar.pli"
+
+public
+
+type PerlList
+  field Array:SV list
+
+# this is conversion to a scalar context -- the last element in the list is used
+function 'cast PerlScalar' perllist -> scalar
+  arg PerlList perllist
+  arg PerlScalar scalar
+  implicit
+  var Int size := perllist:list:size
+  if size > 0 
+    scalar _set perllist:list:(size-1)
+  # post: ref count incremented automatically for sv, due to type conversion
+
+function copy src dest                                                                                           
+  arg PerlList src ; arg_w PerlList dest                                                                         
+  var Int size := src:list:size
+  dest:list:size := size
+  if size <= 0
+    return
+  for (var Int index) 0 size-1
+    var SV sv := src:list:index
+    dest:list:index := sv
+    lperl_SvREFCNT_inc sv  
+
+function destroy perllist
+  arg_w PerlList perllist 
+  var Int size := perllist:list:size
+  if size <= 0
+    return
+  for (var Int index) 0 size-1
+    var SV sv := perllist:list:index
+    lperl_SvREFCNT_dec sv  

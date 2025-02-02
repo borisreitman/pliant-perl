@@ -1,0 +1,19 @@
+module "/pliant/language/unsafe.pli"
+module "/pliant/language/compiler.pli"
+module "cperl.pli"
+module "types.pli"
+
+
+gvar PerlScalar perl_undef
+perl_undef _set lperl_get_PL_sv_undef
+
+export perl_undef
+
+public
+  method scalar is_undef -> bool
+    arg PerlScalar scalar
+    arg Bool bool
+    #console "perl_sv_undef = " address_to_int:perl_sv_undef eol
+    #console "scalar:sv = " address_to_int:(scalar:sv) eol
+    bool := scalar:sv = perl_sv_undef
+

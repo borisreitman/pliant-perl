@@ -1,0 +1,414 @@
+\subsection{Calling Perl Functions}
+
+The [[perl]] keyword executes a perl function or method.  If the first thing
+after the [[perl]] keyword is an object of type PerlScalar then the [[perl]] 
+keyword operates in method mode.  Example,
+\begin{verbatim}
+# call function "DBI::connect"
+dbh := perl "DBI::connect" "DBI" data_source data_username data_password
+
+# call method "selectall_arrayref"
+ref_records := perl dbh "selectall_arrayref" "select * from products;"
+\end{verbatim}
+
+As you see, the [[perl]] keyword allows an arbitrary number of arguments.
+When the function name is a valid identifier, we can allow no qoutes. For
+example,
+\begin{verbatim}
+ref_records := perl dbh selectall_arrayref "select * from products;"
+\end{verbatim}
+
+The meta must push each argument onto the stack, then call the appropriate perl
+function.  The return value is popped from the perl stack and placed into a
+PerlList object.  The PerlList object will take on from there.
+
+<<perl-meta>>=
+### the meta: 
+meta perl e 
+  if e:size<1 #or not (e:0 cast CStr) 
+    return  
+  e:0 compile_step2 ? 
+  var Bool is_method_call := shunt e:0:is_compiled (e:0:result:type = PerlScalar or e:0:result:type = PerlList) false
+  var Bool is_static_call := false
+  'do the call' e is_method_call is_static_call
+@
+
+Another comment about above code is the [[e:0 compile_step2 ?]] instruction.  We need 
+to compile the first subexpression [[e:0]] in order to check if it is of type
+[[PerlScalar]] and hence detect a method call. The ordinary [[e:0 compile]]
+will crash the program if this expression can not be compiled. This is the
+precise case when a function is invoked without enclosing itn name in 
+double quotes. Example:
+\begin{verbatim}
+perl_eval {{  sub hello { my $x = shift; print "Hello $x!\n" } }}
+perl hello "World"
+\end{verbatim}
+So using [[compile_step2]] and [[is_compiled]] solves the problem. 
+
+
+The [[perl_static]] keyword allows to call a static class method.  Use it as,
+\begin{verbatim}
+# $dbh := DBI->connect(data_source,username,password)
+dbh := perl_static DBI connect data_source username password
+\end{verbatim}
+or for calling a constructor, but see [[perl_new]] below, which makes it even easier,
+\begin{verbatim}
+obj := perl_static T new arg1 arg2
+\end{verbatim}
+
+<<perl-static-meta>>=
+### the meta: 
+meta perl_static e 
+  if e:size<1 #or not (e:0 cast CStr) 
+    return  
+  var Bool is_method_call := true
+  var Bool is_static_call := true
+  'do the call' e is_method_call is_static_call
+@
+
+<<do-the-call>>=
+function 'do the call' e is_method_call is_static_call
+  arg_rw Expression e # expression to compile 
+  arg Bool is_method_call is_static_call # if first is false, second is false too
+
+  var Link:Argument perllist :> argument local PerlList    
+  var Link:Argument sp :> argument local Address    
+  var Int start_index := shunt is_method_call 2 1
+
+  <<perl-meta-push-args>>
+  <<perl-meta-call>>
+
+  e add (instruction (the_function perl__post_cleanup Address) sp) 
+  e set_result perllist access_read
+@
+In the code above, the [[start_index]] variable tells us where in the expression is the first argument to the
+function or method. It is 2 in the case of a method call. For example, for a method call shown below, 
+the start index is 2:
+tokens in the expression
+\begin{verbatim}
+     #0      #1                       #2
+perl dbh selectall_arrayref "select * from products;"
+\end{verbatim}
+
+
+Now, lets implement pushing the arguments onto the perl stack,
+<<perl-meta-push-args>>=
+e add (instruction (the_function lperl__GET_STACK_SP -> Address) sp) 
+e add (instruction (the_function perl__prepare_to_push_args Address ) sp)
+
+var Link:Expression first_arg_expr :> e:0
+
+if is_method_call
+  if is_static_call   # first argument is a class name
+    var Link:Argument first_arg
+    if first_arg_expr:is_pure_ident 
+      first_arg :> argument constant Str first_arg_expr:ident
+      e add (instruction (the_function perl__push_string Address Str) sp first_arg)  
+    else
+      first_arg_expr cast CStr
+      e suckup first_arg_expr
+      first_arg :> first_arg_expr:result
+      e add (instruction (the_function perl__push_cstring Address CStr) sp first_arg)  
+  else                # first argument is a perl object
+    first_arg_expr cast PerlScalar
+    e suckup first_arg_expr
+    e add (instruction (the_function perl__push_scalar Address PerlScalar) sp first_arg_expr:result)  
+
+part push_arguments
+  for (var Int i) start_index e:size-1    
+    e add (instruction (the_function lperl_PUTBACK Address) sp)
+    e:i compile ?
+    if (e:i:result:type = PerlArray ) 
+      e suckup e:i 
+      e add (instruction (the_function perl__push_array Address PerlArray) sp e:i:result)  
+    eif (e:i:result:type = PerlScalar ) 
+      e suckup e:i 
+      e add (instruction (the_function perl__push_scalar Address PerlScalar) sp e:i:result)  
+    eif (e:i:result:type = Int)
+      e suckup e:i 
+      e add (instruction (the_function perl__push_integer Address Int) sp e:i:result)  
+    eif (e:i:result:type = uInt)
+      e suckup e:i 
+      e add (instruction (the_function perl__push_integer Address uInt) sp e:i:result)  
+    eif (e:i cast CStr)
+      e suckup e:i 
+      e add (instruction (the_function perl__push_cstring Address CStr) sp e:i:result) 
+    else 
+      console "Error: unrecognized type of argument" eol
+      leave push_arguments # error!
+e add (instruction (the_function perl__finish_pushing_args Address) sp )
+@
+
+We are done pushing the arguments onto the perl stack, and are ready to call the function or method.
+The method or function name is just before the first argument, i.e. at [[start_index - 1]].
+This name could have been supplied without double quotes, as an identifier, or inside double quotes, as a string.
+We distinguish between the two cases by checking [[is_pure_ident]] property of an expression.
+<<perl-meta-call>>=
+var Link:Expression funcname_expr :> e:(start_index-1)
+var Link:Argument funcname 
+if funcname_expr:is_pure_ident
+  funcname :> argument constant Str funcname_expr:ident
+else
+  funcname_expr cast Str
+  e suckup funcname_expr
+  funcname :> funcname_expr:result
+
+if is_method_call
+  e add (instruction (the_function perl__call_method Address Str -> PerlList) sp funcname perllist)
+else
+  e add (instruction (the_function perl__call_sub Address Str -> PerlList) sp funcname perllist)
+@
+
+\subsection{Constructor ``new'' -- [[perl_new]]}
+This next convenience is to call a constructor. Since we don't have the \verb+->+ operator like we have in perl
+(maybe define it later), we will need a way to do [[MyClass->new]] somehow. We
+need to call function [[MyClass::new]] and pass the ``MyClass'' string as the
+first argument.  
+
+We don't want to rewrite too much code, so we will convert the [[perl_new]] into
+[[perl_static]] meta, by modifying the arguments in the expression.  We convert, 
+\begin{verbatim}
+obj := perl_new MyClass arg1 arg2 ...
+\end{verbatim}
+to
+\begin{verbatim}
+obj := perl_static MyClass new arg1 arg2 ...
+\end{verbatim}
+
+<<perl-new-meta>>=
+meta perl_new e
+  if e:size < 1
+    return
+  var Link:Expression package_expr :> e:0
+  var Link:Expression funcname_expr :> expression constant "new" 
+  var Link:Expression newexpr
+  newexpr :> expression ident "perl_static" near e subexpressions package_expr funcname_expr (e 1 e:size-1)
+
+  e compile_as newexpr
+@
+
+Since we are already doing it, might as well provide a convenient way to call an arbitrary static
+method,
+
+Many times we need to call a \emph{super} method, when we override a function.
+Unfortunately,  this is the only way it works if we use [[perl_static]],
+
+\begin{verbatim}
+perl_static MyClass "MyClass::SUPER::method_name" arg1 arg2 arg3 ...
+\end{verbatim}
+
+This is awkward.  We make a wrapper meta [[perl_super]] which will be shorter,
+
+\begin{verbatim}
+perl_super MyClass method_name arg1 arg2 arg3 ...
+\end{verbatim}
+
+<<expression-to-string>>=
+function expression_to_string expr -> string
+  arg_r Expression expr
+  arg Str string
+
+  if expr:is_pure_ident
+    string := expr:ident
+  else
+    string := ((expr constant Str) map Str)
+@
+
+
+<<perl-super-meta>>=
+meta perl_super e
+  if e:size < 2
+    return
+  var Link:Expression package_expr :> e:0
+  var Link:Expression methodname_expr :> e:1
+  var Str package_str methodname_str
+
+  if package_expr:is_pure_ident
+    package_str := package_expr:ident
+  else
+    package_str := ((package_expr constant Str) map Str)
+
+  if methodname_expr:is_pure_ident
+    methodname_str := methodname_expr:ident
+  else
+    methodname_str := ((methodname_expr constant Str) map Str)
+
+  var Str funcname_str := package_str + "::SUPER::" + methodname_str
+
+  var Link:Expression funcname_expr :> expression constant funcname_str
+  var Link:Expression newexpr
+  newexpr :> expression ident "perl_static" near e subexpressions package_expr funcname_expr (e 2 (e:size-2))
+
+  e compile_as newexpr
+@
+
+
+\subsubsection{Shortcut for calling methods}
+
+When don't need to say 'perl' when we call a method, because we already
+know that whatever follows a PerlScalar object must be a method invocation.
+We just need to make sure that we are not accessing any pliant method or 
+pliant attribute.
+
+<<is-local-name>>=
+function is_local_name interface message_name -> retval 
+  arg Type interface
+  arg Str message_name
+  arg Bool retval
+  retval := false
+  for (var Int i) 0 interface:nb_fields-1
+    var Pointer:TypeField f :> interface field i 
+    if f:name = message_name
+      retval := true
+      return
+@
+
+<<auto-method>>=
+meta '' e
+  strong_definition
+  if not e:size > 1
+    return
+  var Link:Expression clone :> expression duplicate e:0
+  e:0 compile_step2 ?
+  if not e:0:is_compiled
+    return
+  if e:0:result:type <> PerlScalar and e:0:result:type <> PerlList
+    return
+  # check if the second argument is not a real pliant method or attribute
+  var Str name := e:1:ident
+  if (is_local_name  PerlScalar e:1:ident)
+    return
+  var Link:Expression newexpr :> expression ident "perl" subexpressions clone (e 1 e:size-1)
+  e compile_as newexpr
+@
+
+
+
+\subsubsection{Helper methods}
+
+<<call.pli>>=
+module "/pliant/language/unsafe.pli"
+module "/pliant/language/compiler.pli"
+
+module "cperl.pli"
+module "types.pli"
+#module "dump.pli"
+
+
+################################################################################
+# Calling a perl function 
+################################################################################
+
+function perl__prepare_to_push_args sp
+  arg_rw Address sp
+  lperl_ENTER
+  lperl_SAVETMPS
+  lperl_PUSHMARK sp
+
+function perl__finish_pushing_args sp
+  arg_rw Address sp
+  lperl_PUTBACK sp
+
+function perl__push_integer sp x
+  arg_rw Address sp
+  arg Int x
+  lperl_XPUSHs sp (lperl_sv_2mortal lperl_newSViv:(cast x Int32))
+
+
+function perl__push_integer sp x
+  arg_rw Address sp
+  arg uInt x
+  perl__push_integer sp (cast x Int)
+
+function perl__push_cstring sp x
+  arg_rw Address sp
+  arg CStr x
+  lperl_XPUSHs sp (lperl_sv_2mortal (lperl_newSVpv x x:len))
+
+function perl__push_string sp x
+  arg_rw Address sp
+  arg Str x
+  var CStr y := (cast x CStr)
+  perl__push_cstring sp y
+
+function perl__push_scalar sp scalar
+  arg_rw Address sp
+  arg PerlScalar scalar
+  if perl_defined:scalar
+    lperl_XPUSHs sp scalar:sv
+  else
+    lperl_XPUSHs sp lperl_sv_newmortal
+
+function perl__push_array sp array
+  arg_rw Address sp
+  arg PerlArray array
+  var Int max_index := array:size - 1
+  var Int index
+  var PerlScalar scalar
+  for index 0 max_index
+    scalar := array index
+    lperl_XPUSHs sp scalar:sv
+
+private
+function fetch_retvalues_into_list sp num_values -> perllist
+  arg_rw Address sp ; arg Int num_values ; arg PerlList perllist
+  var SV sv 
+  lperl_SPAGAIN sp
+
+  if num_values >= 1
+    perllist:list:size := num_values
+    # put all the returned SV's into a perl-list structure
+    var Int count := num_values
+    while count > 0
+      count := count - 1
+      sv := lperl_POPs sp
+      sv := lperl_SvREFCNT_inc sv
+      perllist:list:count := sv
+  lperl_PUTBACK sp
+public
+
+function perl__call_sub sp subname -> perllist
+  arg_rw Address sp
+  arg Str subname
+  arg PerlList perllist
+  var Int num_values := lperl_call_pv subname G_ARRAY
+  perllist := fetch_retvalues_into_list sp num_values
+
+function perl__call_method sp subname -> perllist
+  arg_rw Address sp
+  arg Str subname
+  arg PerlList perllist
+  var Int num_values := lperl_call_method subname G_ARRAY
+  perllist := fetch_retvalues_into_list sp num_values 
+
+function perl__post_cleanup sp
+  arg_rw Address sp
+  lperl_FREETMPS
+  lperl_LEAVE
+
+
+<<do-the-call>>
+<<is-local-name>>
+
+public
+  <<perl-meta>>
+  <<perl-static-meta>>
+  <<perl-super-meta>>
+  <<perl-new-meta>>
+  <<auto-method>>
+
+  ################################################################################
+  # perl_eval
+  ################################################################################
+
+  function perl_eval str -> sv
+    arg Str str
+    arg SV sv
+    sv := lperl_eval_pv str G_TRUE
+  
+
+  function funcaddress_to_int address -> int
+    arg Address address
+    arg Int int
+    int := address_to_int address
+@

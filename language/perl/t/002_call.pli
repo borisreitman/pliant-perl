@@ -1,0 +1,86 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+module "/pliantx/language/perl/cperl.pli"
+module "/pliantx/test/test.pli"
+plan_tests 8
+
+function perl__prepare_to_push_args sp
+  arg_rw Address sp
+  lperl_ENTER
+  lperl_SAVETMPS
+  lperl_PUSHMARK sp
+
+function perl__finish_pushing_args sp
+  arg_rw Address sp
+  lperl_PUTBACK sp
+
+perl_eval {{
+  sub test_B {
+    return uc( join ',', @_ );
+  } }}
+
+function main
+  perl_eval {{ 
+    my @x = ();
+    my $counter = 0;
+    sub test123 {
+      @x = ($counter++, @_); \}}} 
+
+  perl test123
+  ok true
+
+  var Address sp := lperl__GET_STACK_SP  
+  perl__prepare_to_push_args sp
+  perl__finish_pushing_args sp
+  perl__call_sub sp "test123"
+  perl__post_cleanup sp
+  ok true
+
+  sp := lperl__GET_STACK_SP  
+  lperl_ENTER
+  lperl_SAVETMPS
+  lperl_PUSHMARK sp
+  lperl_PUTBACK sp
+  var Int count := lperl_call_pv "test123" G_ARRAY
+  lperl_SPAGAIN sp
+  is count 1
+  while count > 0
+    var Address sv := lperl_POPs sp
+    sv := lperl_SvREFCNT_inc sv
+    count -= 1
+  lperl_PUTBACK sp
+  lperl_FREETMPS
+  lperl_LEAVE
+
+  sp := lperl__GET_STACK_SP  
+  var Address sv 
+  lperl_ENTER
+  lperl_SAVETMPS
+  lperl_PUSHMARK sp
+
+  sv := lperl_sv_2mortal lperl_newSViv:10
+  lperl_XPUSHs sp sv # lperl_get_PL_sv_undef
+
+  lperl_PUTBACK sp
+  var Int count := lperl_call_pv "test123" G_ARRAY
+  lperl_SPAGAIN sp
+  is count 2
+  while count > 0
+    var Address sv := lperl_POPs sp
+    sv := lperl_SvREFCNT_inc sv
+    count -= 1
+  lperl_PUTBACK sp
+  lperl_FREETMPS
+  lperl_LEAVE
+
+  ok true
+
+  perl test123 3
+  is_true true
+
+  var PerlArray a := perl test123 3 4
+  is a:size 3
+
+  is (perl test_B "b" (perl test_B "a")) "B,A"
+main

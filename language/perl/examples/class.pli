@@ -1,0 +1,38 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+
+perl_eval {{ 
+  package Parent; 
+  sub new { 
+    return bless {}, 
+    shift(); 
+  }
+  sub dump { 
+    my $self = shift; 
+    print $self->{message}, "\n"; 
+  }
+
+  package T; 
+  our @ISA = qw(Parent); 
+}}
+
+perl_function new_T classname -> self
+  arg Str classname ; arg PerlScalar self
+
+  #create a new hash reference and bless it
+  self := perl_ref (var PerlHash hash)
+  self bless classname 
+
+  # we can store stuff inside self, for example
+  self:hash:"message" := "hello"
+  self:hash:"_data"   := 10000 # or memory address of some Pliant data
+
+# tell perl that new_T is implementation for T::new function
+perl_define "T::new" new_T 
+
+# create new T object (call constructor implemented in pliant)
+gvar PerlScalar t := perl_new T
+
+# call method dump implemented in perl for the parent class "Parent"
+t dump

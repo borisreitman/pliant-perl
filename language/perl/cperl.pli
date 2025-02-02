@@ -1,0 +1,442 @@
+module "/pliant/language/unsafe.pli"
+module "/pliant/language/compiler.pli"
+module "/pliant/admin/file.pli"
+module "config.pli"
+
+constant wrapper_library find_wrapper_library 
+
+public 
+
+alias SV Address from "/pliant/language/basic/safe.pli"
+alias AV Address from "/pliant/language/basic/safe.pli"
+alias HV Address from "/pliant/language/basic/safe.pli"
+
+constant G_FALSE     (cast 0 Int32)
+constant G_TRUE      (cast 1 Int32)
+
+# some defines from cop.h 
+constant G_SCALAR    (cast 0 Int32)
+constant G_ARRAY     (cast 1 Int32)
+constant G_VOID      (cast 128 Int32)    #/* skip this bit when adding flags below */
+
+# /* extra flags for Perl_call_* routines */
+constant G_DISCARD   (cast 2       Int32) #/* Call FREETMPS. */
+constant G_EVAL      (cast 4       Int32) #/* Assume eval {} around subroutine call. */
+constant G_NOARGS    (cast 8       Int32) #/* Don't construct a @_ array. */
+constant G_KEEPERR   (cast 16       Int32) #/* Append errors to $@, don't overwrite it */
+constant G_NODEBUG   (cast 32       Int32) #/* Disable debugging at toplevel.  */
+constant G_METHOD    (cast 64       Int32) #/* Calling method. */
+
+# /* flag bits for PL_in_eval */
+constant EVAL_NULL      (cast 0       Int32) #/* not in an eval */
+constant EVAL_INEVAL    (cast 1       Int32) #/* some enclosing scope is an eval */
+constant EVAL_WARNONLY  (cast 2       Int32) #/* used by yywarn() when calling yyerror() */
+constant EVAL_KEEPERR   (cast 4       Int32) #/* set by Perl_call_sv if G_KEEPERR */
+constant EVAL_INREQUIRE (cast 8       Int32) #/* The code is being required. */
+
+# reference types
+constant lperl_SVt_NULL  0 
+constant lperl_SVt_IV    1 
+constant lperl_SVt_NV    2 
+constant lperl_SVt_RV    3 
+constant lperl_SVt_PV    4 
+constant lperl_SVt_PVIV  5 
+constant lperl_SVt_PVNV  6 
+constant lperl_SVt_PVMG  7 
+constant lperl_SVt_PVBM  8 
+constant lperl_SVt_PVLV  9 
+constant lperl_SVt_PVAV  10 
+constant lperl_SVt_PVHV  11 
+constant lperl_SVt_PVCV  12 
+constant lperl_SVt_PVGV  13 
+constant lperl_SVt_PVFM  14 
+constant lperl_SVt_PVIO  15 
+
+
+type Perl_XRV
+  field Address xrv_rv    #/* pointer to another SV */
+
+type Perl_SV 
+  field Address sv_any    #  /* pointer to something */
+  field uInt32  sv_refcnt #  /* how many references to us */
+  field uInt32  sv_flags  #  /* what we are */
+
+type Perl_GV
+  field Address  sv_any    #/* pointer to something */
+  field uInt32   sv_refcnt #  /* how many references to us */
+  field uInt32   sv_flags  #/* what we are */
+
+type Perl_CV
+  field Address  sv_any     #/* pointer to something */
+  field uInt32   sv_refcnt  # /* how many references to us */
+  field uInt32   sv_flags   #/* what we are */
+
+type Perl_AV
+  field Address  sv_any     #/* pointer to something */
+  field uInt32   sv_refcnt  # /* how many references to us */
+  field uInt32   sv_flags   #/* what we are */
+
+type Perl_HV
+  field Address  sv_any    #/* pointer to something */
+  field uInt32  sv_refcnt  # /* how many references to us */
+  field uInt32  sv_flags   #/* what we are */
+
+type Perl_IO
+  field Address  sv_any    #/* pointer to something */
+  field uInt32   sv_refcnt #  /* how many references to us */
+  field uInt32   sv_flags  #/* what we are */
+
+function address_to_int address -> int
+  arg Address address
+  arg Int int
+  int := cast address Int
+
+gvar Address perl_interpreter 
+gvar Address _perl_sv_undef := null
+
+## Local Implementations of Macros
+
+function lperl_SvANY sv -> any
+  arg Address sv
+  arg Address any
+  any := (sv map Perl_SV) sv_any 
+
+function lperl_SvRV rv -> address
+  arg Address rv 
+  arg Address address
+  address := (lperl_SvANY:rv map Perl_XRV) xrv_rv
+
+function lperl_SVTYPE sv -> int
+  arg Address sv
+  arg Int int
+  int := (sv map Perl_SV):sv_flags .and. FFh
+
+
+## Local Implementations of functions
+
+function lperl_prepare_old
+  external wrapper_library "lperl_prepare_old"
+
+function lperl_prepare
+  lperl_prepare_old
+
+function lperl_cleanup_old
+  external wrapper_library "lperl_cleanup_old"
+
+function lperl_get_interpreter -> interpreter
+  arg Address interpreter
+  external wrapper_library  "lperl_get_interpreter"
+
+function lperl_get_PL_sv_undef -> sv
+  arg Address sv
+  external wrapper_library "lperl_get_PL_sv_undef"
+
+function perl_sv_undef -> address
+  arg Address address
+  if _perl_sv_undef = null
+    _perl_sv_undef := lperl_get_PL_sv_undef
+  address := _perl_sv_undef
+
+function lperl_cleanup 
+  lperl_cleanup_old
+
+
+## C wrappers
+
+function lperl_sv_dump sv
+  arg Address sv
+  external wrapper_library "lperl_sv_dump"
+
+function lperl_dump_markstack_ptr
+  external wrapper_library "lperl_dump_markstack_ptr"
+
+function lperl_get_markstack_ptr -> ptr
+  arg Address ptr
+  external wrapper_library "lperl_get_markstack_ptr"
+
+function lperl_set_markstack_ptr ptr
+  arg Address ptr
+  external wrapper_library "lperl_set_markstack_ptr"
+
+function lperl_sv_bless sv stash -> retval_sv
+  arg Address sv
+  arg Address stash
+  arg Address retval_sv
+  external wrapper_library "lperl_sv_bless"
+
+function lperl_newXS name address filename -> cv
+  arg CStr name
+  arg Address address
+  arg CStr filename
+  arg Address cv
+  external wrapper_library "lperl_newXS"
+  
+function lperl_SvPV_nolen sv -> string
+  arg Address sv
+  arg CStr string
+  external wrapper_library "lperl_SvPV_nolen"
+
+function lperl_newRV_inc thing -> sv
+  arg Address thing
+  arg Address sv
+  external wrapper_library "lperl_newRV_inc"
+
+function lperl_newAV -> av
+  arg Address av
+  external wrapper_library "lperl_newAV"
+
+function lperl_newHV -> av
+  arg Address av
+  external wrapper_library "lperl_newHV"
+
+function lperl_av_undef av
+  arg Address av
+  external wrapper_library "lperl_av_undef"
+
+function lperl_av_fetch av index flag -> ptr
+  arg Address av
+  arg Int index
+  arg Int flag
+  arg Address ptr
+  external wrapper_library "lperl_av_fetch"
+
+function lperl_av_pop av -> sv
+  arg Address av
+  arg Address sv
+  external wrapper_library "lperl_av_pop"
+
+# TODO: shift, unshift, push  convenience and same in types/array.pli
+
+function lperl_hv_fetch hv key klen lval -> ptr
+  arg Address hv
+  arg CStr key
+  arg Int klen
+  arg Int lval
+  arg Address ptr
+  external wrapper_library "lperl_hv_fetch"
+
+function lperl_av_store av index sv -> ptr
+  arg AV av
+  arg Int index
+  arg Address sv
+  arg Address ptr
+  external wrapper_library "lperl_av_store"
+
+function lperl_hv_store hv key klen sv hash -> ptr
+  arg HV hv
+  arg CStr key
+  arg Int klen
+  arg Address sv
+  arg Int hash
+  arg Address ptr
+  external wrapper_library "lperl_hv_store"
+
+function lperl_hv_iterinit hv -> size
+  arg HV hv
+  arg Int size
+  external wrapper_library "lperl_hv_iterinit"
+
+function lperl_hv_iternextsv hv key_buffer key_len -> sv
+  arg HV hv
+  arg_w CStr key_buffer
+  arg_w Int key_len
+  arg SV sv
+  external wrapper_library "lperl_hv_iternextsv"
+
+function lperl_av_len av -> len
+  arg Address av
+  arg Int len
+  external wrapper_library "lperl_av_len"
+
+function lperl_SvIV sv -> number
+  arg Address sv
+  arg Int number
+  external wrapper_library "lperl_SvIV"
+
+# the Float case is convoluted because Pliant passes Floats around 
+# by reference. This function will place the float value into the supplied  
+# placeholder
+function lperl_sv2nv sv placeholder
+  arg Address sv
+  arg_w Float placeholder # explicitely show this
+  external wrapper_library "lperl_sv2nv"
+
+function lperl_SvREFCNT_inc sv -> sv2
+  arg Address sv sv2
+  external wrapper_library "lperl_SvREFCNT_inc"
+
+function lperl_SvREFCNT_dec sv 
+  arg Address sv 
+  external wrapper_library "lperl_SvREFCNT_dec"
+
+function lperl_eval_pv code_string bool_croak_on_error  -> sv
+  arg CStr code_string
+  arg Int bool_croak_on_error 
+  arg Address sv
+  external wrapper_library "lperl_eval_pv"
+
+function lperl_eval_sv code_string bool_croak_on_error  -> sv
+  arg CStr code_string
+  arg Int32 bool_croak_on_error 
+  arg Address sv
+  external wrapper_library "lperl_eval_sv"
+
+function lperl_sv_cmp sv1 sv2 -> retval
+  arg Address sv1 sv2
+  arg Int retval
+  external wrapper_library "lperl_sv_cmp"
+
+function lperl_call_pv funcname flags -> retval 
+  arg CStr funcname
+  arg Int flags
+  arg Int retval
+  external wrapper_library "lperl_call_pv"
+
+function lperl_call_method funcname flags -> retval 
+  arg CStr funcname
+  arg Int flags
+  arg Int retval
+  external wrapper_library "lperl_call_method"
+
+function lperl_get_av varname flags -> retval 
+  arg CStr varname
+  arg Int flags
+  arg Address retval
+  external wrapper_library "lperl_get_av"
+
+function lperl_get_hv varname flags -> retval 
+  arg CStr varname
+  arg Int flags
+  arg Address retval
+  external wrapper_library "lperl_get_hv"
+
+function lperl_gv_stashpv varname flags -> retval 
+  arg CStr varname
+  arg Int flags
+  arg Address retval
+  external wrapper_library "lperl_gv_stashpv"
+
+function lperl_sv_2mortal sv -> mortal
+  arg Address sv
+  arg Address mortal
+  external wrapper_library "lperl_sv_2mortal"
+
+function lperl_sv_newmortal -> mortal
+  arg Address mortal
+  external wrapper_library "lperl_sv_newmortal"
+
+function lperl_sv_setsv dest source 
+  arg Address dest
+  arg Address source
+  external wrapper_library "lperl_sv_setsv"
+
+function lperl_sv_setnv sv realnumber 
+  arg Address sv
+  arg Float realnumber  # note: this is passed by address
+  external wrapper_library "lperl_sv_setnv"
+
+function lperl_newSV -> sv # same as: newSVsv(sv_undef)
+  arg Address sv
+  external wrapper_library "lperl_newSV"
+
+function lperl_newSVsv source -> dest
+  arg Address source 
+  arg Address dest
+  external wrapper_library "lperl_newSVsv"
+
+function lperl_newSViv intval -> sv
+  arg Int intval
+  arg Address sv
+  external wrapper_library "lperl_newSViv"
+
+function lperl_newSVpv strval len -> sv
+  arg CStr strval
+  arg Int len
+  arg Address sv
+  external wrapper_library "lperl_newSVpv"
+
+function lperl_sv_setiv sv number 
+  arg Address sv
+  arg Int number
+  external wrapper_library "lperl_sv_setiv"
+
+function lperl_sv_setpv sv str
+  arg Address sv
+  arg CStr str
+  external wrapper_library "lperl_sv_setpv"
+
+### perl stack manipulation 
+
+## perl mark stack
+function lperl_EXTEND mysp sp_user value
+  arg_rw Address mysp
+  arg Address sp_user 
+  arg Int value  # extent by this amount
+  external wrapper_library "lperl_EXTEND"
+
+function lperl_TOPMARK -> mark
+  arg Int mark
+  external wrapper_library "lperl_TOPMARK"
+
+function lperl_POPMARK -> mark
+  arg Int mark
+  external wrapper_library "lperl_POPMARK"
+
+## perl arg stack
+function lperl__GET_STACK_BASE -> base
+  arg Address base
+  external wrapper_library "lperl__GET_STACK_BASE"
+
+function lperl__SET_STACK_SP ptr
+  arg Address ptr
+  external wrapper_library "lperl__SET_STACK_SP"
+
+function lperl__GET_STACK_SP -> sp
+  arg Address sp
+  external wrapper_library "lperl__GET_STACK_SP"
+
+function lperl_dump_stack_sp 
+  external wrapper_library "lperl_dump_stack_sp"
+
+function lperl_ENTER 
+  external wrapper_library "lperl_ENTER"
+
+function lperl_SAVETMPS 
+  external wrapper_library "lperl_SAVETMPS"
+
+function lperl_PUSHMARK sp
+  arg_rw Address sp
+  external wrapper_library "lperl_PUSHMARK"
+
+function lperl_XPUSHs sp sv
+  arg_rw Address sp
+  arg Address sv
+  external wrapper_library "lperl_XPUSHs"
+
+function lperl_PUTBACK sp
+  arg_rw Address sp
+  external wrapper_library "lperl_PUTBACK"
+
+function lperl_SPAGAIN sp
+  arg_rw Address sp
+  external wrapper_library "lperl_SPAGAIN"
+
+function lperl_FREETMPS 
+  external wrapper_library "lperl_FREETMPS"
+
+function lperl_LEAVE 
+  external wrapper_library "lperl_LEAVE"
+
+function lperl_POPs sp -> sv 
+  arg_rw Address sp
+  arg Address sv
+  external wrapper_library "lperl_POPs"
+
+function lperl_POPi sp -> retval 
+  arg_rw Address sp
+  arg Int retval
+  external wrapper_library "lperl_POPi"
+
+#function lperl_testme x
+#  arg Int x
+#  external wrapper_library "lperl_testme"

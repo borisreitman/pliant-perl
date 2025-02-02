@@ -1,0 +1,13 @@
+module "/pliant/language/compiler.pli"
+module "cperl.pli"
+module "types/scalar.pli"
+#module "interpreter.pli"
+
+#lperl_prepare
+#perl_eval " use Devel::Peek; use Data::Dumper;"
+#perl_eval " sub my_devel_peek_dump {  my $x= shift; Devel::Peek::Dump(shift); print Data::Dumper::Dumper($x); 1; } "
+
+public
+  function perl_dump_scalar scalar
+    arg PerlScalar scalar
+    lperl_sv_dump scalar:sv

@@ -1,0 +1,410 @@
+\documentclass{article}
+\title{Pliant Multiline String support}
+\author{Boris Reitman}
+\begin{document}
+\maketitle
+\section{Multiline String}
+
+This module implements multiline string support.  The syntax is,
+\begin{verbatim}
+1  console {{ A. Roses are Red,
+2   Violets Are Blue. }} 
+3 
+4  function main
+5    console {{ B. Not multiline. }} 
+6    console {{ C. Another
+7  Example }} + some_func:(10+30) {{ D. which
+8  breaks indentation. }}
+9    console {{ E. This is still 
+10     the body 
+11   of main }}
+\end{verbatim}
+In other words, any string can be placed between the double braces.  This kind of syntax 
+can be used to embed the code of some other language in pliant (e.g. action script, perl)
+
+In order to implement multiline strings, we need to work around
+the assiduous [[ parser_filter_newline ]] filter (see Notes section).  Among possible
+implementations for multiline string support we choose the following:
+convert a multi-line string into a single-line string.
+
+To do this we mangle the [[ParserContext text]] field, which is a list of lines.
+The mangled version of the example above is,
+\begin{verbatim}
+1  console {{ A. Roses are Red, [lf] Violets Are Blue. }}
+2  
+3 
+4  function main
+5    console {{ B. Not multiline. }} 
+6    console {{ C. Another[lf]Example }} + some_func:(10+30) {{ D. which[lf]breaks indentation. }}
+7  
+8  
+9    console {{ E. This is still[lf]    the body[lf]  of main }}
+10 
+11 
+\end{verbatim}
+The are two negative side effects with this approach.  First is error
+reporting.  If there is an error in line 7 about function [[some_func]]
+the line number will be reported as 6 and not 7, and the column number
+will be wrong as well.
+
+The second problem is that we can not relocate in memory the line referenced by [[context:current_line]]
+because other parser filters are going to receive a 'line' parameter that is mapped to this [[current_line]],
+which would then point to dangling storage if [[current_line]] is relocated.
+By rewriting the code as above we are increasing the lengths of
+the leading lines (lines 1, 5, 6, 9) and doing this may force
+memory relocation for the strings.  Therefore our filter must be
+invoked somewhere \emph{before} line 5 for line 5 to be handled properly. 
+
+Likewise, the filter must be invoked before line 1 for line 1 to be handled properly.  
+Unfortunately, although we can arrange invoking before line 5, we can not arrange invoking before line 1.
+This is because there is nothing before line 1 for us to bind to.
+If there was a module directive there (other than an include for \emph{our own} multiline module), 
+we could bind to that. But when there isn't, then the user of our module must work around this problem and 
+put someting before the first line. For example, an "if true" block to wrap a multiline string. To summarize, whenever a multiline string is used before anything else in the file, 
+excluding [[module "/some_path/multiline_string.pli"]], one must do the following,
+\begin{verbatim}
+if true
+  console {{ I 
+    am here before everyone else, 
+ except the 'if true' line above me }}
+\end{verbatim}
+and alternative that also works is to simply put any statement above our line, for example a lone 'true':
+\begin{verbatim}
+true
+console {{ I 
+  am here before everyone else, 
+except the 'true' line above me }}
+\end{verbatim}
+
+To conclude, we must straighten out all the strings early enough so that
+the newline filter won't get confused.  When the newline filter gets
+to look at the 'main' function definition at line 4, the strings inside
+should already be in the converted form, or otherwise the newline filter
+will not work correctly.
+
+To make this happen, we register a custom mangling filter before
+the newline filter kicks in.  Note that the newline filter is registered at the
+[[basic signs]] section.  A higher priority section is [[priority user
+operators]] where we register our filter.
+
+<<register>>=
+gvar ParserFilter prepare_filter
+prepare_filter function :> the_function newline_find_multiline_string ParserContext Str Address
+constant 'pliant parser priority user operators' prepare_filter
+export 'pliant parser priority user operators'
+@
+
+Once the strings are prepared and are straight, parsing and tokenizing them is trivial.
+We register a filter for this below:
+<<register>>=
+gvar ParserFilter my_filter
+my_filter function :> the_function singleline_string ParserContext Str Address
+constant 'pliant parser 2 chars operators' my_filter
+export 'pliant parser 2 chars operators'
+@
+
+\subsection{Code layout}
+The general layout of the output module is as follows:
+<<multiline_string.pli>>=
+# filter to recognize a multi-line string: uses {{  }} as delimiters.
+# useful to embed programs in other languages in the middle of 
+# pliant code.
+
+module "/pliant/language/parser.pli"
+module "/pliant/language/compiler.pli"
+
+<<helper-functions>>
+<<functions>>
+<<register>>
+@
+
+\subsection{Delimiters}
+As mentioned, multiline string is usefull for embedding code in another language.
+The choice of using double braces as "\{\{" and "\}\}" as delimiters can be useful
+for configuration of an editor to do brace matching, and syntax highlighting of the code inside.
+
+To escape the "\}\}" delimeter use "\\\}\}".  As well, "\\\}"  becomes "\}" and in general: 
+an odd number $x$ of preceeding backslashes before a closing brace will become $(x-1)/2$
+backslashes followed by a brace which will not be used to match a closing of the string.
+Similarly, and even number $x$ of preceeding backslashes before a closing brace will 
+become $x/2$ backslashes and the closing brace may potentially be used to match the ending of the string.
+
+
+\section{Implementation}
+This function gets a pointer to the line which has a start of a
+multiline string.  It calls itself tail-recursively to handle the
+case of several multiline strings on the same ``virtual'' line.  
+For example, it converts 
+\begin{verbatim}
+...
+6    console {{ C. Another
+7  Example }} + some_func:(10+30) {{ D. which
+8  breaks indentation. }}
+\end{verbatim}
+to,
+\begin{verbatim}
+6    console {{ C. Another[lf]Example }} + some_func:(10+30) {{ D. which[lf]breaks indentation. }}
+7  
+8  
+\end{verbatim}
+The [[extra_skip]] parameter is needed for this recursion to be arranged, and
+it tells how many lines were already straightened out.  The [[start_ptr]]
+always points to the first line where a multiline string was detected (line 6).
+For above example this function will be executed twice, first with extra skip of 0,
+and second with extra skip of 1, in order to process the string beginning with ``D.''.
+
+<<functions>>=
+function straighten_multiline_string context start_ptr extra_skip start_x -> ptr
+  arg_rw ParserContext context ; arg Int start_x extra_skip ; arg Pointer:Arrow start_ptr ptr
+  ptr :> start_ptr
+  var Int _extra_skip := extra_skip
+  if ptr = null
+    return
+  var Pointer:Str start_line :> ptr map Str
+  var Int max := start_line len
+  var Int i
+  i := (start_line start_x start_line:len-start_x+1) search_token "{{" -1
+  if i = -1
+    ptr :> context:text next ptr
+    return
+  else
+    i += start_x
+  i += 2
+  var Int total_skip := _extra_skip
+  var Int parity := 0
+  while true
+    if i >= max-1
+      ptr :> context:text next ptr
+      for (var Int count) 0 _extra_skip-1
+        ptr :> context:text next ptr
+      _extra_skip := 0
+      total_skip += 1 
+      if ptr = null 
+        return
+      var Pointer:Str line :> ptr map Str
+      start_line += "[lf]" + line 
+      line := ""
+      max := start_line:len
+    if start_line:i = "\"
+      parity := (parity + 1) % 2
+    eif start_line:i <> "}"
+      parity := 0
+    eif parity = 0 # and "}"
+      if i < max-1
+        if (start_line i 2) = "}}" 
+          ptr :> straighten_multiline_string context start_ptr total_skip i+2 
+          return
+    else # escaped "}"
+      parity := 0
+    i := i + 1
+  ptr :> context:text next ptr
+@
+
+Below is the parser filter that should be invoked before the newline
+filter gets to look at the code.  Its job is to find the problematic
+lines and fix them by calling [[straighten_multiline_string]] function.
+
+If the filter is invoked at lexical depth of 0 (i.e. parsing globals in the module),
+it will process everything until the end of file. Otherwise, it will process everything 
+until a line is seen with indentation less than at the current line.
+
+<<functions>>=
+function newline_find_multiline_string context line parameter
+  arg_rw ParserContext context ; arg Str line ; arg Address parameter
+  if context:x <> 0 or line:len < 3
+    return
+  var Int i := line count_leading " "
+  if i = line:len-1
+    return
+  var Pointer:Arrow ptr
+  if (line search_token "{{" -1) <> -1
+    ptr :> straighten_multiline_string context context:current_line 0 0
+  else
+    ptr :> context:text next context:current_line
+  var Pointer:Str line2 
+  var Int j 
+  while ptr <> null
+    part find_non_empty_line
+      while ptr <> null
+        line2 :> ptr map Str
+        j := line2 count_leading " "
+        if j < line2:len
+          leave find_non_empty_line
+        ptr :> context:text next ptr
+    if j < i 
+      return
+    part fixup
+      while ptr <> null
+        line2 :> ptr map Str
+        if (line2 search_token "{{" -1) <> -1
+          ptr :> straighten_multiline_string context ptr 0 0
+        else
+          ptr :> context:text next ptr
+        if ptr <> null
+          if (line2 count_leading " ") <= i
+            leave fixup
+@
+
+Below is the second parser filter which only needs to read a single line string, delimited
+by the double brace operators.  Note that most of the work here is taking care of escaped
+braces.
+
+<<functions>>=
+function singleline_string context line parameter
+  arg_rw ParserContext context ; arg Str line ; arg Address parameter
+  if line:len < 2
+    return
+  if (line 0 2) <> "{{"
+    return
+  var Str result 
+  var Int i := 2
+  var Int max := line len
+  var Int num_backslashes := 0
+  part parse
+    while i < max
+      if line:i = "\" 
+        num_backslashes += 1
+        i += 1
+        restart parse
+      eif line:i = "}" 
+        if num_backslashes%2 = 1
+          result += (repeat (num_backslashes-1)\2 "\") 
+          num_backslashes := 0
+        else
+          result += repeat num_backslashes\2 "\"
+          num_backslashes := 0
+          if i < max-1
+            if (line i 2) = "}}" 
+              var Link:Str token :> new Str result
+              context add_token addressof:token
+              context x += i + 2
+              return
+      eif num_backslashes > 0 # any char but } and \
+        result += repeat num_backslashes "\"
+        num_backslashes := 0
+      result := result + line:i
+      i := i + 1
+@
+
+\section{Misc}
+Helper function to check how much indentation is there on a line.
+
+<<helper-functions>>=
+method line count_leading token  -> indent
+  arg Str line ; arg Str token ; arg Int indent
+  indent := 0
+  var Int repeats := line:len \ token:len
+  for (var Int i) 0 repeats step token:len
+    if (line i token:len) = token
+      indent += 1
+    else
+      return
+@
+
+Helper function to find an opening "\{\{" token in a line, which is not inside a string.
+
+<<helper-functions>>=
+method line search_token token not_found -> position
+  arg Str line ; arg Str token ; arg Int position not_found
+  var Bool in_string := false
+  position := not_found
+  for (var Int index) 0 line:len-token:len
+    if not in_string
+      if (line index token:len) = token
+        position := index
+        return
+      eif line:index = "[dq]"
+        in_string := true
+    eif in_string and line:index = "[dq]"
+      in_string := false
+@
+
+\section{Notes}
+\subsection{Enhancements to Current Code}
+While we are straightening out the lines, we can replace opening "\{\{" and closing "\}\}" with
+a normal pliant quotes to open and close a string.  This way we will not need the [[ singleline_string ]] 
+parser filter.
+
+\subsection{Alternative Implementation Ideas}
+We could write our own [[ parser_filter_newline ]] filter which is just like the original
+but takes care of the multiline strings.  The benefit of this approach is that 
+there is no issue with a multiline string in the beginning of the module.  
+Another benefit is that error line and column numbers would be reported correctly.
+
+The disadvantage is that we create code duplication between the original newline filter and ours.
+
+Another idea is to try to battle the [[parser_filter_newline]] in another way,
+by prefixing all multiline strings with spaces+marker, so that they 
+look properly indented. For example, the following, 
+\begin{verbatim}
+...
+6    console {{ C. Another
+7  Example }} + some_func:(10+30) {{ D. which
+8  breaks indentation. }}
+...
+\end{verbatim}
+would become,
+\begin{verbatim}
+...
+6    console {{ C. Another
+7    $Example }} + some_func:(10+30) {{ D. which
+8    $breaks indentation. }}
+...
+\end{verbatim}
+where the "\$" is a special marker.  
+
+We could also force a creation of a block by using a larger indent,
+\begin{verbatim}
+...
+6    console {{ C. Another
+7      $Example }} + some_func:(10+30) {{ D. which
+8      $breaks indentation. }}
+...
+\end{verbatim}
+In each case we let the newline filter add its pending filters. Later,
+in our filter we would need to remove them.
+
+This latter approach doesn't have the disadvantages discussed previously,
+however it is cumbersome to implement.
+
+\subsection{Notes on [[parser_filter_newline]]}
+About the [[ parser_filter_newline ]]. Refer to the following example again.  
+What would have happened if we didn't straighten out the strings ?
+\begin{verbatim}
+1  console {{ A. Roses are Red,
+2   Violets Are Blue. }} 
+3 
+4  function main
+5    console {{ B. Not multiline. }} 
+6    console {{ C. Another
+7  Example }} + some_func:(10+30) {{ D. which
+8  breaks indentation. }}
+9    console {{ E. This is still 
+10     the body 
+11   of main }}
+\end{verbatim}
+The [[ parser_filter_newline ]] filter does the following.  For every
+line, it checks if the following line has more indentation.  If that
+is the case, it signifies that the current line has a block as
+its argument (for example the [[if]] block) and must be taken care of as follows.
+It is handled by adding pending filters to open a block at the next line
+and to close a block at the line where indentation is not greater than
+the present line.
+
+A multiline string as in the first example above causes the addition
+of the pending open and close block filters because the word "Violets"
+is indented more than the keyword [[console]].
+
+Another pending filter that is added improperly is the [[
+parser_pending_close_instruction ]] filter.  It is ordinarily added at
+the end of the instruction and is registered at the $(x,y)$ coordinate
+(column, line number) for the end of the expression. For example B, it
+would be at the end of the line.  However, for example C, it would be
+also added at the end of the line which is a mistake, and the correct
+place for it is at the end of line 8 or beginning of line 9.
+
+Also, example C breaks indentation severely, and the effect of this is
+that when the newline filter will look at line 4 which starts to describe
+"function main", it will think that the function finishes at line 7 and
+insert close block pending filter at the beginning of line 7.  
+\end{document}

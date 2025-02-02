@@ -1,0 +1,40 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+module "/pliantx/test/test.pli"
+
+plan_tests 4
+
+gvar Int global_int := 0
+gvar Str global_str := 0
+
+perl_function helloworld   -> q
+  arg Int  q
+  global_int := 10
+
+perl_function dostuff obj k 
+  arg PerlScalar obj 
+  arg Int k
+  global_str := (cast obj Str) + " " + string:k 
+
+gvar PerlScalar s := 10
+gvar PerlArray args 
+args 0 := 2
+
+helloworld s 0 # calls the Pliant function directly
+is global_int 10
+global_int := 0
+helloworld args  # calls the wrapper
+is global_int 10
+
+dostuff s 11
+is global_str "10 11"
+
+perl_eval {{ sub 
+  run_callback { 
+    my $x = shift; &$x(10,20); 
+  \}}}
+perl run_callback perl_callback:dostuff
+is global_str "10 20"
+
+

@@ -1,0 +1,33 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+module "/pliantx/test/test.pli"
+plan_tests 5
+
+function main
+  var PerlScalar scalar := 1
+  var Int integer := 1
+  var Bool bool
+  integer := scalar
+  bool := integer
+  bool := scalar
+  ok bool 
+  scalar := 0
+  bool := scalar
+  ok not:bool 
+
+  var PerlScalar scalar := 1.1e-10
+  is scalar 0.00000000011
+
+  var PerlArray array
+  array:0 := 1.1
+  array:1 := 1.2
+
+  var Array:Float pliant_array
+  pliant_array size := 2
+  for (var Int i) 0 array:size-1
+    pliant_array i := array:i
+
+  is pliant_array:0 1.1
+  is pliant_array:1 1.2
+main

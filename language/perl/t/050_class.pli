@@ -1,0 +1,92 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+module "/pliantx/test/test.pli"
+plan_tests 5
+
+perl_eval {{ 
+  package Parent; 
+  sub new { 
+    return bless {}, 
+    shift(); }
+
+  sub get_message { 
+    my $self = shift; 
+    return $self->{message}; }
+
+  sub get_data { 
+    my $self = shift; 
+    return $self->{_data}; }
+
+  package T; 
+  our @ISA = qw(Parent); 
+}}
+
+perl_function new_T classname -> self
+  arg Str classname ; arg PerlScalar self
+
+  self := perl_ref (var PerlHash hash)
+  self bless classname 
+
+  self:hash:"message" := "hello"
+  self:hash:"_data"   := 10000    # or memory address of some Pliant data
+
+perl_define "T::new" new_T        # bind pliant implementation to perl
+gvar PerlScalar t := perl_new T   # constructor in pliant
+
+is t:get_message "hello"
+is t:get_data 10000
+
+perl_eval {{ 
+  package TT; 
+  sub new { 
+    my $class = shift; 
+    return bless {args => [@_]}, $class;  }
+
+  package TTT; 
+  @TTT::ISA = qw(TT); 
+
+  sub get_data { 
+    my $self = shift;
+    return join ",", @{ $self->{args} }; 
+
+  sub new {
+    my $class = shift;
+    return bless {args => [reverse @_]}, $class;
+  }\}}}
+
+function main 
+  var PerlScalar t
+
+  var PerlScalar obj := perl_static "TTT" "new" 10 20 30 40 
+  is obj:get_data "40,30,20,10"
+
+  var PerlScalar obj2 := perl_super TTT new 1 2 3 4 # force parent
+  is obj2:get_data "1,2,3,4"
+
+main
+
+perl_eval {{ 
+  package Counter;  
+
+  sub new { 
+    my $class=shift; 
+    bless {count=>0}, $class;  
+  }
+  
+  sub inc { 
+    $_[0]->{count}++; 
+  }
+
+  sub value { 
+    $_[0]->{count} 
+  }
+}} 
+
+gvar PerlScalar obj := perl_new Counter 
+obj inc 
+obj inc 
+gvar Int value := obj value
+is value 2
+
+

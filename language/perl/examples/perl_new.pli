@@ -1,0 +1,27 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+
+perl_eval {{ 
+  package TT; 
+  sub new { 
+    my $class = shift; 
+    print "NOW IN CONSTRUCTOR @_\n"; 
+    return bless {}, $class;  
+  }
+
+  package T; 
+  @T::ISA = qw(TT); 
+
+  package main;
+  use Data::Dumper; 
+  sub dump_scalar { 
+    print Dumper($_[0]); 
+  } 
+}}
+
+gvar PerlScalar obj
+obj := perl_static T new 1 2 3 4
+perl dump_scalar obj
+
+#perl "T::new" "T"  # works

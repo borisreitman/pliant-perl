@@ -1,0 +1,14 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+
+perl_eval {{ 
+  use Devel::Peek; 
+
+  sub dump { 
+    Devel::Peek::Dump(shift); 
+  } 
+}}
+
+gvar PerlScalar scalar := 1;
+perl dump scalar

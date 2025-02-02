@@ -1,0 +1,259 @@
+\subsection{Hash}
+The most interesting are the 'each' implementations.    The 'each'
+implementation uses two key methods, [[getfirst]] and [[getnext]]. 
+<<hash-navigation>>=
+### browse through the hash
+method h getfirst key value -> ok
+  arg_rw PerlHash h
+  arg_w Str key
+  arg_w PerlScalar value
+  arg CBool ok
+  ok := false
+  h:tmp_size := lperl_hv_iterinit h:hv
+  if h:tmp_size > 0
+    var Int key_len
+    var CStr tmp_key
+    var SV sv := null
+    key set Hashkey_buffer Hashkey_buffer_size false # false for 'belongs to another object'
+    tmp_key := key
+    sv := lperl_hv_iternextsv h:hv tmp_key key_len
+    key := tmp_key
+    if sv <> null  # Perl's undef is not null
+      value _set sv
+      ok := true
+
+method h getnext key value -> ok
+  arg_rw PerlHash h
+  arg_w Str key
+  arg_w PerlScalar value
+  arg CBool ok
+  ok := false
+  if h:tmp_size > 0
+    var Int key_len
+    var CStr tmp_key
+    var SV sv := null
+    key set Hashkey_buffer Hashkey_buffer_size false # false for 'belongs to another object'
+    tmp_key := key
+    sv := lperl_hv_iternextsv h:hv tmp_key key_len
+    key := tmp_key
+    if sv <> null
+      value _set sv
+      ok := true
+@
+
+The 'each' meta puts them to use.  The mess in the beginning of the meta 
+detects different styles of 'each' syntax.
+<<hash-each>>=
+### meta to get 'each' to work
+# syntax: 
+# each value d 
+# each value d key keyword   # TODO
+# each value d PerlScalar key keyword  # TODO
+#   block
+# value and keyword will be set with the PerlScalar type and Str
+meta each e
+  if e:size<3 or e:size>6 or not (e:0 cast PerlScalar) or not (e:1 cast PerlHash) or e:(e:size-1):ident<>"{}"
+    return
+  e suckup e:0
+  var Link:Expression key_expr 
+  var Link:Argument key 
+  if e:size=5 and e:2:ident="key" and e:3:is_pure_ident
+    key_expr :> expression ident e:3:ident near e
+    key_expr cast Str
+    key :> key_expr:result
+  eif e:size=6 and e:2:ident="PerlScalar" and e:3:ident="key" and e:4:is_pure_ident
+    key_expr :> expression ident e:4:ident near e
+    key_expr cast Str
+    key :> key_expr:result
+  else
+    key :> argument local Str
+    
+  e:(e:size-1) compile ?
+  var Link:Argument again :> argument local CBool
+  e suckup e:1
+  e add (instruction (the_function '. getfirst' PerlHash Str PerlScalar -> CBool) e:1:result key e:0:result again)   
+  var Link:Instruction end :> instruction the_function:'do nothing'
+  e add (instruction (the_function 'jump if not' CBool) again jump end)
+  var Link:Instruction body :> instruction the_function:'do nothing'
+  e add body  
+  e suckup e:(e:size-1)  # the body
+  e add (instruction (the_function '. getnext' PerlHash Str PerlScalar -> CBool) e:1:result key e:0:result again)
+  e add (instruction (the_function 'jump if' CBool) again jump body)
+  e add end
+  e set_void_result
+@
+
+To access the hash value (read), we use the empty string method,
+<<hash-read-value>>=
+method h '' key -> scalar
+  arg_r PerlHash h
+  arg Str key
+  arg PerlScalar scalar
+  if h:hv <> null
+    var Address sv_ptr := lperl_hv_fetch h:hv key key:len 0
+    if sv_ptr <> null 
+      scalar _set (sv_ptr map SV)
+@
+
+Writing into hash is different, it is implemented with a meta, similar to the perl array assignment implementation,
+<<hash-assign>>=
+meta ':=' e
+  if e:size <> 2 
+    return
+
+  var Link:Expression hash_expr key_expr
+  if e:0:size = 2
+    hash_expr :> e:0:0
+    key_expr :> e:0:1
+  eif e:0:size = 1
+    hash_expr :> expression ident e:0:ident near e
+    key_expr :> e:0:0
+  else
+    return
+  
+  if (hash_expr cast PerlHash) and (key_expr cast Str) and (e:1 cast PerlScalar)
+    e suckup key_expr
+    e suckup e:1
+    e suckup hash_expr
+    e add (instruction (the_function set_perlhash_element PerlHash Str PerlScalar) hash_expr:result key_expr:result e:1:result)
+    e set_void_result
+  #eif (hash_expr cast PerlScalar) and (key_expr cast Str) and (e:1 cast PerlScalar)
+  #  e suckup key_expr
+  #  e suckup e:1
+  #  e suckup hash_expr
+  #  e add (instruction (the_function set_perlhash_element PerlScalar Str PerlScalar) hash_expr:result key_expr:result e:1:result)
+  #  e set_void_result
+@
+Notice that we allowed [[hash_expr]] to be of type PerlScalar.  This is the case
+when it is a hash ref. The routine work is done by the [[set_perlhash_element]] method,
+<<hash-assign-helper>>=
+### meta to handle   hash:key := value 
+#   first, a function which meta will call
+function set_perlhash_element hash key scalar
+  arg_rw PerlHash hash
+  arg Str key
+  arg_r PerlScalar scalar
+
+  if hash:hv = null 
+    hash:hv := lperl_newHV
+  else
+    # decrement ref count of whatever is currently stored in the hash at this key
+    var Address sv_ptr := lperl_hv_fetch hash:hv key key:len 0
+    if sv_ptr <> null 
+      lperl_SvREFCNT_dec (sv_ptr map SV)
+    
+  lperl_hv_store hash:hv key key:len scalar:sv 0
+  lperl_SvREFCNT_inc scalar:sv # increment the ref count of the new element stored
+@
+The case of hash ref is handled here. We fetch the referenced hash and call the
+above function on it.
+<<hash-assign-helper>>=
+#function set_perlhash_element hashref key scalar
+#  arg_rw PerlScalar hashref
+#  arg Str key
+#  arg_r PerlScalar scalar
+#  if not hashref:is_hashref
+#    console "error: scalar is not a hash reference" eol 
+#  else
+#    console "" 
+#    #exit 99
+#
+#  set_perlhash_element hashref:hash key scalar
+@
+
+\subsubsection{Hash Deref}
+When we observe [[(hashref string)]] we try to auto dereference.  This remove
+the need to have the [[ -> ]] available that is available in perl.  In perl
+a hash and hashref can be of the same name so it was neccessary to have the 
+[[->]] operator to disambiguate.
+<<hash-deref>>=
+method ref hash -> hash
+  arg PerlScalar ref
+  arg PerlHash hash
+  var SV hv := lperl_SvRV ref:sv
+  hash set_hv hv
+
+## auto dereference a ref when an inner element is accessed
+#method ref '' key -> scalar
+#  arg PerlScalar ref
+#  arg Str key
+#  arg PerlScalar scalar
+#  if not ref:is_hashref
+#    console "not a hash ref" eol
+#  else
+#    console ""
+#    #exit
+#  scalar := ref:hash:key 
+@
+
+\subsubsection{The Rest}
+The rest of the code,
+<<hash.pli>>=
+module "/pliant/language/unsafe.pli"
+module "/pliant/language/compiler.pli"
+module "scalar.pli"
+module "list.pli"
+module "ref_test.pli"
+module "../dump.pli"
+module "../cperl.pli"
+ 
+constant Hashkey_buffer_size (cast 1024 Int)
+gvar Address Hashkey_buffer := memory_zallocate Hashkey_buffer_size null # max hash key string length
+# FIXME: how do I deallocate it later ?
+
+public
+
+################################################################################
+# PerlHash 
+
+# PerlHash is a proxy to a perl-space hash.
+# this is because perl lists will end-up in pliant space only as a result of a
+# subsroutine call.   PerlHashs may arise when the returned list is converted
+# to an hash, or when an hashref is dereferenced (all in pliant space).
+
+type PerlHash
+  field HV hv
+  field Int tmp_size  # for iteration
+
+function build h
+  arg_w PerlHash h
+  h:hv := lperl_newHV
+  
+
+method h set_from_name name
+  arg_w PerlHash h 
+  arg Str name
+  if h:hv <> null
+    lperl_SvREFCNT_dec h:hv
+  h:hv := lperl_get_hv name 0 
+  if h:hv <> null
+    lperl_SvREFCNT_inc h:hv
+
+method h set_hv hv
+  arg_w PerlHash h 
+  arg HV hv
+  if h:hv <> null
+    lperl_SvREFCNT_dec h:hv
+  h:hv := hv
+  lperl_SvREFCNT_inc h:hv
+
+function destroy h
+  arg_w PerlHash h 
+  if h:hv <> null
+    lperl_SvREFCNT_dec h:hv
+    h:hv := null
+
+function copy src dest
+  arg   PerlHash src
+  arg_w PerlHash dest
+  dest:hv := src:hv
+  if dest:hv <> null
+    lperl_SvREFCNT_inc dest:hv # increment ref count
+
+<<hash-read-value>>
+<<hash-deref>>
+<<hash-assign-helper>>
+<<hash-assign>>
+<<hash-navigation>>
+<<hash-each>>
+@

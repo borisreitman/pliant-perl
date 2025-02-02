@@ -1,0 +1,42 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+module "/pliantx/test/test.pli"
+plan_tests 6
+
+perl_eval {{ 
+  sub show_array { 
+    my $rl_list = shift; 
+    print join(",", @$rl_list), "\n"; 
+  \}}} 
+
+gvar PerlScalar scalar1
+gvar PerlScalar scalar2
+scalar1 := "a"
+scalar2 := perl_ref scalar1
+scalar1 := "b"
+is scalar2:scalar "b" 
+
+gvar PerlArray a
+a 0 := 10 
+a 1 := 20 
+
+gvar PerlScalar ref
+
+ref := perl_ref a 
+
+# deref 
+is ref:array:0 10
+ref:array:0 := "50"
+
+is ref:array:0 "50"
+is ref:array:1 20
+ 
+## check for hash
+gvar PerlHash h
+h "nothing" := 0 
+h "infinity" := 100000
+ref := perl_ref h
+
+is ref:hash:"nothing" 0 
+is ref:hash:"infinity" 100000

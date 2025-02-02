@@ -1,0 +1,25 @@
+module "cperl.pli"
+module "/pliant/language/unsafe.pli"
+module "/pliant/language/compiler.pli"
+
+gvar Int InterpreterUsers 
+
+public 
+  function perl_prepare
+    if InterpreterUsers = 0
+      lperl_prepare
+      InterpreterUsers := 1
+
+  function perl_cleanup
+    if InterpreterUsers <> 0
+      lperl_cleanup
+
+function 'interpreter init' p fh
+  arg Address p ; arg Int fh
+  InterpreterUsers := 0
+  perl_prepare
+
+'interpreter init'  null 0
+gvar DelayedAction restore 
+restore function :> the_function 'interpreter init' Address Int
+pliant_restore_actions append addressof:restore

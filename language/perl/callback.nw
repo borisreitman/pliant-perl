@@ -1,0 +1,352 @@
+\subsection{Passing pliant callbacks to perl}
+Our goal is to pass Pliant functions as callbacks to perl.  To do this, we are going 
+to make a pliant function appear as a CV scalar, and pass the CV to perl.  The [[perl_callback]]
+meta that we imlepment in this module arranges does this.  Its input is an instance of 
+pliant's Function data type, and its output is an SV that is a callback (CV).  It also allows
+in some cases a shortcut to specify pliant function name instead of the Function datatype insance.
+
+\subsubsection{Brainstorm}
+It would be best if pliant functions need not be aware that perl will be calling them.
+
+Here is an example,
+\begin{verbatim}
+function non_perl_aware i j k -> r
+  arg Str i j ; arg Int k ; arg Str r
+  console i j k eol
+  r := 10
+
+function somewhat_perl_aware obj i j -> r
+  arg PerlScalar obj ; arg Int i j r
+  obj dump  #call method on perl object
+  console i j eol
+  r := 20
+
+perl "iterate_over_datastructure"   wx_callback:non_perl_aware
+perl "iterate_another_datastructure" wx_callback:somewhat_perl_aware
+\end{verbatim}
+
+In order to implement such comfortabile usage, we need to work step by step.  
+The first step is to make functions of the following form available as callbacks to perl.
+These functions receive and return a perl array.
+\begin{verbatim}
+function perl_aware args -> retval
+  arg PerlArray args retval
+  var PerlScalar arg1 := args 0
+  var PerlScalar arg2 := args 1
+  # do stuff with arg1 and arg2
+  # set retvalue by filling up the retval array
+  retval 0 := 10
+\end{verbatim}
+The second step is for each non perl aware pliant function to create a 
+perl aware wrapper function of above form.
+
+\subsubsection{The Main Idea}
+Perl can only call a C-routine if it is registered with [[newXS]] function under
+some name and the call must be made by that explicit name.  There are two problems 
+with this.  First, we want the callback to be anonymous to the calling function, 
+therefore the caller can not call a variable function name.
+Second, we want to pass as callbacks many different functions.
+
+The solution to both issues is to wrap the address to the callback 
+in anonymous perl subroutine. This anonymous subroutine calls a pliant function 
+declared with [[newXS]] using an explicit name [[pliant_generate_callback_]] 
+and pass the callback address to it as a first argument.
+
+The actual details are as follows,
+<<init-gen-callback>>=
+perl_eval {{ 
+  sub pliant_generate_callback_ { 
+    my $address = shift; 
+    return sub { 
+      push @_, $address; 
+      pliant_call_function_(); }; 
+
+  sub pliant_generate_callback_inperl_ { 
+    return \&{$_[0]}; } \}}}
+@
+
+Note that we push the address onto the special array [[@_]], which will be
+visible to the [[pliant_call_function_]].  Not sure why the argument propagates like that. 
+I think it has to do with the fact that [[pliant_call_function_]] is an XS subroutine.
+Please feel free to send feedback regarding this issue.
+
+\subsubsection{Implementation Details}
+What follows is the code that puts it all together.  We will concentrate on the 
+implementation of [[pliant_callback_explicit]] first, which convertes
+a [[Function]] type to a perl callback.  Later, we implement
+[[perl_callback]] which allows shortcuts.
+
+<<callback.pli>>=
+module "/pliant/language/unsafe.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/lexer/multiline_string.pli"
+module "cperl.pli"
+module "call.pli"
+module "interpreter.pli"
+module "types/scalar.pli"
+module "types/list.pli"
+module "types/array.pli"
+module "types/hash.pli"
+ 
+function perl_callback_inperl name -> closure
+  arg Str name
+  arg PerlScalar closure
+  closure := perl pliant_generate_callback_inperl_ name
+
+function perl_callback_explicit callback -> closure
+  arg Function callback
+  arg PerlScalar closure
+  closure := perl pliant_generate_callback_ address_to_int:(addressof:callback)
+
+<<perl-callback-meta>>
+<<perl-define-meta>>
+<<callback-helper>>
+<<perl-function-meta>>
+
+function 'initialize callback module' p fh
+  arg Address p ; arg Int fh
+  perl_prepare  
+  <<init-gen-callback>>
+  <<init-define-meta-helper>>
+  <<init-XS>>
+
+'initialize callback module' null 0
+gvar DelayedAction restore
+restore function :>  the_function 'initialize callback module' Address Int
+pliant_restore_actions append addressof:restore
+
+@
+
+And this is the code to register the XS function [[pliant_call_function_]] 
+(the code is executed in the global block),
+
+<<callback-helper>>=
+<<callback-signature>>
+<<callback-wrapper>>
+@
+<<init-XS>>=
+lperl_newXS "pliant_call_function_" (the_function 'pliant-perl callback wrapper' Address Address):executable ""
+@
+
+Note that on the pliant end the function is called [[pliant-perl callback wrapper]]\footnote{We have used the single quotes to allow spaces in the function name.}.
+Choosing a name like this helps to avoid clashes with any user-defined name.
+The Perl XS API requires that an XS function recieves two arguments -- the
+current interpreter and the CV object that corresponds to the XS function.
+
+This function must pop the last argument which will be a function address.
+
+<<callback-wrapper>>=
+function 'pliant-perl callback wrapper' interpreter cv
+  arg Address interpreter
+  arg Address cv
+  varargs_calling_convention
+  var PerlArray array
+  array set_from_name "_"  # the special array @_ magically has the right stuff
+  var Int num_arguments := array:size
+  var Int tmp_address := array:pop
+  var Address address := (addressof:tmp_address map Address) # force cast
+  lperl_POPMARK 
+  <<call-callback>>
+  <<install-retvalue>>
+@
+This is somewhat of a hack, but we need to export this function in order
+to lock it in memory.  Otherwise it gets freed too early and we get a
+segmentation fault when we try to call it.
+<<callback-wrapper>>=
+export 'pliant-perl callback wrapper'
+@
+
+What remains is to implement calling the callback.  We must know the signature
+(prototype) of a function in order to call it.  The user callback receives 
+one argument, the [[@_]] array in the form of [[PerlArray]] object.
+
+<<callback-signature>>=
+function 'pliant-perl callback signature' arguments f -> retval
+  arg_rw PerlArray arguments
+  arg Function f 
+  arg PerlArray retval
+  indirect
+@
+
+The ``f'' argument is not part of the callback signature, but it is there because thats 
+how callbacks in Pliant work\footnote{the [[indirect]] keyword does all the work.  It's somewhat of hack}.  
+Calling the callback is then like this,
+\begin{verbatim}
+retval := 'pliant-perl callback signature' array callback 
+\end{verbatim}
+where `callback' must be of type [[Function]].  Here is the precise code that is 
+appended to the end of [[pliant-perl callback wrapper]].
+
+<<call-callback>>=
+var Pointer:Function callback :> address map Function
+var PerlArray retval
+retval := 'pliant-perl callback signature' array callback
+@
+
+We must also handle the return value from our function by putting it on the
+stack.  Note that the EXTEND call below makes space for the return values
+to be pushed on the stack.
+
+<<install-retvalue>>=
+#pre: retval contains return value(s)
+var Address sp := lperl__GET_STACK_SP 
+lperl_EXTEND sp sp retval:size
+for (var Int index) 0 retval:size-1
+  var PerlScalar scalar  := retval:index
+  scalar _mortalize # increment ref count; decrement will automatically occur when Perl leaves scope
+  lperl_XPUSHs sp scalar:sv
+lperl__SET_STACK_SP sp
+@
+
+\subsubsection{Make it nice}
+We would like to make it easy for the user to pass Pliant callbacks to perl.  
+
+First, above we have implemented [[perl_callback_explicit]] which must receive
+a function pointer of the form [[(the_function Name PerlArray->PerlArray)]] but we want
+to remove this extra syntax.  If an argument to [[perl_callback]] is an
+identifier [[Name]], we find the corresponding [[the_function]].  However,
+if [[(the_function ...)]] is already given, we don't do extra work.
+
+<<perl-callback-meta>>=
+meta perl_callback e
+  if e:size <> 1 
+    return
+  var Link:Expression func_expr
+  if e:0:is_pure_ident
+    func_expr :> expression immediat { (the_function x PerlArray -> PerlArray) } substitute x e:0
+  else
+    func_expr :> e:0 
+
+  func_expr near e
+  func_expr compile_step2 ? 
+  var Link:Expression newexpr 
+  var Bool is_pure_perl := shunt not:(func_expr:is_compiled) true (func_expr:result:type = Str) 
+  if not:is_pure_perl
+    newexpr :> expression ident "perl_callback_explicit" subexpressions func_expr
+    e compile_as newexpr
+  else
+    var Link:Argument name_arg 
+    var Link:Argument result :> argument local PerlScalar
+    var Link:Argument bool_false :> argument constant Int 0
+    if e:0:is_pure_ident
+      name_arg :> argument constant Str e:0:ident
+    eif (e:0 cast Str)
+      e suckup e:0
+      name_arg :> e:0:result
+    else
+      return
+    e add (instruction (the_function perl_callback_inperl Str -> PerlScalar) name_arg result)
+    e set_result result access_read
+
+export perl_callback_explicit perl_callback perl_callback_inperl
+@
+
+We need to export [[perl_callback_explict]] because we are compiling the new
+expression in the users space, and we are using [[perl_callback_explicit]] there.
+
+\subsection{Implementing Perl functions in Pliant}
+We just register the Pliant function by converting to a CV and manipulating the
+package's stash.
+
+In the same spirit we make an ``explict'' version and a meta wrapper version.
+
+<<init-define-meta-helper>>=
+perl_eval {{ 
+  sub pliant_define_function { 
+    my($name, $sub) = @_; 
+    *{$name} = $sub; \}}}
+
+<<perl-define-meta>>=
+function perl_define_explicit name func
+  arg Function func
+  arg Str name
+
+  var PerlScalar sub := perl_callback_explicit func
+  perl pliant_define_function name sub
+@
+
+The define meta follows. \TODO{ In the future it would be good to allow absence
+of the first parameter, in which case it will be assumed to be the ``main'' package }.
+
+<<perl-define-meta>>=
+meta perl_define e
+  if e:size <> 2
+    return
+  var Link:Expression func_expr
+  if e:1:is_pure_ident
+    func_expr :> expression immediat { (the_function x PerlArray -> PerlArray) } substitute x e:1
+  else
+    func_expr :> e:1
+
+  var Link:Expression newexpr :> expression ident "perl_define_explicit" subexpressions e:0 func_expr
+  e compile_as newexpr
+
+export perl_define_explicit perl_define
+@
+
+\subsubsection{Automatically handling arguments and return value}
+Instead of doing 
+\begin{verbatim}
+function call_me_from_perl args -> retval
+  arg PerlArray args retval
+  arg Str arg1 := args 0
+  arg Int arg2 := args 1
+  # do stuff with arg1, arg2 
+  retval 0 := 10
+\end{verbatim}
+we can better do this,
+\begin{verbatim}
+perl_function call_me_from_perl arg1 arg2 -> retval
+  arg Str arg1 
+  arg Int arg2 
+  arg Int retval
+  # do stuff with arg1 and arg2 and possibly retval
+  retval := 10
+\end{verbatim}
+This will bring as closer to dissolving the boundary between Pliant and Perl,
+because the body of the function now knows nothing about perl.
+
+Here is the [[perl_function]] meta,
+
+<<perl-function-meta>>=
+meta perl_function e
+  if e:size > 0
+    
+    # we need to figure out if we have a return value, and the number of arguments
+    var Bool have_return_value := false 
+    if (e:size - 3) > 0
+      have_return_value := e:(e:size - 3):ident = "->"
+    var Int num_arguments := shunt have_return_value (e:size - 4) (e:size - 2)
+
+    var Link:Expression func_mainbody_expr 
+    func_mainbody_expr :> expression ident "function" near e subexpressions (e 0 e:size)
+    named_expression wrapper_template
+      function NAME args -> retval
+        arg PerlArray args retval
+        GENCALL
+        
+    # prepare the wrapper function
+    var Link:Expression call_expr :> expression ident e:0:ident near e
+    call_expr:arguments:size := num_arguments
+    for (var Int count) 0 num_arguments-1
+      var Link:Expression constant_expr :> expression constant count
+      call_expr:arguments:count := addressof (expression immediat args:X substitute X constant_expr)
+
+    var Link:Expression gencall_expr 
+
+    if have_return_value
+      gencall_expr :> expression ident ":=" near e subexpressions (expression immediat retval:0 near e) call_expr
+    else
+      gencall_expr :> call_expr
+
+    # replace NAME and GENCALL with the right stuff
+    var Link:Expression wrapper_func :> expression map wrapper_template substitute NAME e:0 substitute GENCALL gencall_expr
+
+    # now, compile both the real function and the wrapper function
+    e compile_as (expression ident "{}" subexpressions func_mainbody_expr wrapper_func)
+
+export perl_function 
+@
+
+\subsubsection{Using non-perl aware functions as callbacks}
+

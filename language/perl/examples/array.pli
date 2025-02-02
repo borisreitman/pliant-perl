@@ -1,0 +1,43 @@
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+module "/pliantx/lexer/multiline_string.pli"
+
+
+gvar PerlArray array
+
+array:0 := 0
+array:1 := "hello" 
+array:2 := 3 
+
+console "Array size: " array:size eol
+
+gvar Int index := 3
+array:index := 1
+
+gvar PerlScalar scalar
+for index 0 array:size - 1
+  scalar := array:index
+  console "Got array:" index " = " scalar eol
+
+perl_eval {{ 
+  sub mysplit { 
+    split ' ', shift(); 
+  \}}}
+
+array := perl "mysplit" "monday tuesday wednesday thursday friday saturday sunday"
+
+for index 0 array:size - 1
+  console "Got array:" index " = " array:index eol
+
+perl_eval {{ sub showarray { print join(',', @_), "\n"; }   }} 
+perl "showarray" array
+
+#define array in perl space and link to it from here, by name
+perl_eval {{ @date = localtime; }}
+array set_from_name "date"
+perl "showarray" array
+
+
+each scalar array
+  console "Got: " scalar eol
+

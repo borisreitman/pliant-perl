@@ -1,0 +1,272 @@
+\subsection{Array Interface}
+\subsubsection{Each Interface}
+<<array-each>>=
+private 
+function __zero -> int
+  arg Int int
+  int := 0
+function __inc int
+  arg_rw Int int
+  int := int + 1
+function __greater a b -> bool
+  arg Int a b
+  arg CBool bool
+  bool := a > b
+function __set array index -> scalar
+  arg PerlArray array
+  arg Int index
+  arg PerlScalar scalar
+  scalar := array index
+
+public
+meta each e
+  if e:size<3 or e:size>6 or not (e:0 cast PerlScalar) or not (e:1 cast PerlArray) or e:(e:size-1):ident<>"{}"
+    return
+  e suckup e:0
+  #var Link:Expression key_expr 
+  #var Link:Argument index
+  #if e:size=5 and e:2:ident="key" and e:3:is_pure_ident
+  #  key_expr :> expression ident e:3:ident near e
+  #  key_expr cast Str
+  #  key :> key_expr:result
+  #eif e:size=6 and e:2:ident="PerlScalar" and e:3:ident="key" and e:4:is_pure_ident
+  #  key_expr :> expression ident e:4:ident near e
+  #  key_expr cast Str
+  #  key :> key_expr:result
+  #else
+  #  key :> argument local Str
+  var Link:Argument index :> argument local Int
+  var Link:Argument size :> argument local Int
+  var Link:Argument again :> argument local CBool
+    
+  var Link:Instruction end :> instruction the_function:'do nothing'
+  var Link:Instruction body :> instruction the_function:'do nothing'
+
+  e:(e:size-1) compile ?
+  e suckup e:1  # the array
+  e add (instruction (the_function '. size' PerlArray -> Int) e:1:result size)   
+  e add (instruction (the_function '__zero' -> Int) index)   
+  e add (instruction (the_function '__greater' Int Int -> CBool) size index again)   
+  e add (instruction (the_function 'jump if not' CBool) again jump end)
+  e add body  
+  e add (instruction (the_function '__set' PerlArray Int -> PerlScalar) e:1:result index e:0:result)
+  e suckup e:(e:size-1)  # the body
+  e add (instruction (the_function '__inc' Int) index)
+  e add (instruction (the_function '__greater' Int Int -> CBool) size index again)   
+  e add (instruction (the_function 'jump if' CBool) again jump body)
+  e add end
+  e set_void_result
+@
+
+
+
+
+\subsubsection{Array Deref}
+This is similar to the hash implementation.
+
+<<array-deref>>=
+method ref array -> a
+  arg PerlScalar ref
+  arg PerlArray a
+  var SV av := lperl_SvRV ref:sv
+  a set_av av
+
+#method ref '' index -> scalar
+#  arg PerlScalar ref
+#  arg Int index
+#  arg PerlScalar scalar
+#  if not ref:is_arrayref
+#    console "not an array ref" eol
+#  else
+#    console ""
+#    #exit
+#  scalar := ref:array:index
+@
+
+\subsubsection{Set Array Element}
+<<array-assign>>=
+<<array-assign-helper>>
+
+meta ':=' e
+  if e:size <> 2 
+    return
+  #console "e:size =" e:size       eol
+  #console "e:0    =" e:0:ident    eol
+  #console "e:0:0  =" e:0:0:ident  eol
+  #console "e:1    =" e:1:ident    eol
+  #console "e:0:size =" e:0:size    eol
+
+  var Link:Expression array_expr index_expr
+  if e:0:size = 2
+    #console "COMPLEX" eol
+    array_expr :> e:0:0
+    index_expr :> e:0:1
+  eif e:0:size = 1
+    array_expr :> expression ident e:0:ident near e
+    index_expr :> e:0:0
+  else
+    return
+
+  if (array_expr cast PerlArray) and (index_expr cast Int) and (e:1 cast PerlScalar)
+    #console "match" eol
+    e suckup index_expr
+    e suckup e:1
+    e suckup array_expr
+    e add (instruction (the_function set_perlarray_element PerlArray Int PerlScalar) array_expr:result index_expr:result e:1:result)
+    e set_void_result
+@
+
+The helpers follow,
+<<array-assign-helper>>=
+# meta to handle   array:index := value 
+# first, a function which meta will call
+function set_perlarray_element array index tmp_scalar
+  arg_rw PerlArray array
+  arg Int index
+  arg_r PerlScalar tmp_scalar
+  var PerlScalar scalar 
+  deepcopy tmp_scalar scalar # this forces an SV clone
+  if array:av = null 
+    array:av := lperl_newAV
+  else
+    # decrement ref count of whatever is currently stored in the array at this index
+    # and set the field to 'undef'
+    var Address sv_ptr := lperl_av_fetch array:av index 0
+    if sv_ptr <> null 
+      lperl_SvREFCNT_dec (sv_ptr map SV)
+
+  lperl_av_store array:av index scalar:sv 
+  lperl_SvREFCNT_inc scalar:sv # increment the ref count of the new element stored
+@
+
+This one allows to automatically dereference an array.
+<<array-assign-helper>>=
+#function set_perlarray_element arrayref index scalar
+#  arg_rw PerlScalar arrayref
+#  arg Int index
+#  arg_r PerlScalar scalar
+#  if not arrayref:is_arrayref
+#    console "error: scalar is not an array reference" eol 
+#  else
+#    console ""
+#    #exit 99
+#
+#  #FIXME: check, probably an error
+#  #var PerlArray array := arrayref:array
+#  set_perlarray_element arrayref:array index scalar
+@
+
+\subsubsection{Rest of the Code}
+<<array.pli>>=
+module "/pliant/language/unsafe.pli"
+module "/pliant/language/compiler.pli"
+module "scalar.pli"
+module "list.pli"
+module "ref_test.pli"
+module "../cperl.pli"
+
+public
+
+################################################################################
+# PerlArray 
+
+# unlike PerlList, the PerlArray is a proxy to a perl-space array.
+# this is because perl lists will end-up in pliant space only as a result of a
+# subsroutine call.   PerlArrays may arise when the returned list is converted
+# to an array, or when an arrayref is dereferenced (all in pliant space).
+
+type PerlArray
+  field AV av
+
+function build a
+  arg_w PerlArray a
+  a:av := lperl_newAV 
+  
+method a set_av av
+  arg_w PerlArray a
+  arg AV av
+  if a:av <> null
+    lperl_SvREFCNT_dec a:av
+  a:av := av
+  lperl_SvREFCNT_inc a:av
+
+method a set_from_name name
+  arg_w PerlArray a
+  arg Str name
+  if a:av <> null
+    lperl_SvREFCNT_dec a:av
+  a:av := lperl_get_av name 1
+  if a:av <> null
+    lperl_SvREFCNT_inc a:av
+
+function destroy a
+  arg_w PerlArray a 
+  if a:av <> null
+    lperl_SvREFCNT_dec a:av
+    a:av := null
+
+function copy src dest
+  arg   PerlArray src
+  arg_w PerlArray dest
+  dest:av := src:av
+  if dest:av <> null
+    lperl_SvREFCNT_inc dest:av 
+
+method a size -> s
+  arg PerlArray a
+  arg Int s 
+  if a:av <> null
+    s := 1 + (lperl_av_len a:av)
+  else
+    s := 0
+
+###
+method a pop -> scalar
+  arg_w PerlArray a
+  arg PerlScalar scalar
+  if a:av <> null
+    var SV sv := lperl_av_pop a:av 
+    if sv <> null 
+      scalar _set sv
+      # must decrement ref count since array doesn't own it anymore
+      lperl_SvREFCNT_dec sv
+
+#TODO: same for shift, unshift, and push
+
+method a '' i -> scalar
+  arg PerlArray a
+  arg Int i
+  arg PerlScalar scalar
+  scalar sv := perl_sv_undef
+  if a:av <> null
+    if i < a:size 
+      var Address sv_ptr := lperl_av_fetch a:av i 0
+      if sv_ptr <> null 
+        scalar _set (sv_ptr map SV)
+
+
+<<array-deref>>
+<<array-assign>>
+
+function 'cast PerlArray' perllist -> perlarray
+  arg PerlList perllist
+  arg PerlArray perlarray
+  implicit
+  var SV sv 
+  var Int size := perllist:list:size  
+  var Int count := 0
+  var PerlScalar tmp
+  if perlarray:av <> null
+    lperl_SvREFCNT_dec perlarray:av
+  perlarray av := lperl_newAV
+  if size <= 0
+    return
+  while count < size
+    sv := perllist:list:count 
+    tmp _set sv
+    perlarray:count := tmp 
+    lperl_SvREFCNT_inc sv  
+    count := count + 1
+
+<<array-each>>
+@

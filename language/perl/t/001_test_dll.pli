@@ -1,0 +1,15 @@
+module "/pliant/language/unsafe.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/test/test.pli"
+
+constant wrapper_library "c:/pliant/pliantx/language/perl/t/lib/test_mod.dll"
+
+function print_a_string str 
+  arg CStr str
+  external wrapper_library "print_a_string"
+
+function main
+  plan_tests 2
+  print_a_string "ok"
+  is_true true
+main

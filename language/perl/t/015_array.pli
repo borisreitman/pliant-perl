@@ -1,0 +1,46 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+module "/pliantx/test/test.pli"
+plan_tests 15
+
+gvar PerlArray array
+
+array:0 := 0
+array:1 := "hello" 
+array:2 := 3 
+
+is array:size 3
+
+gvar Int index := 3
+array:index := 1
+
+gvar PerlScalar scalar
+is array:0 0
+is array:1 "hello"
+is array:2 3
+
+perl_eval {{ 
+  sub mysplit { 
+    return split ' ', shift(); \}}}
+
+array := perl "mysplit" "monday tuesday wednesday thursday friday saturday sunday"
+
+is array:0 "monday"
+is array:1 "tuesday"
+is array:2 "wednesday"
+is array:3 "thursday"
+is array:4 "friday"
+is array:5 "saturday"
+is array:6 "sunday"
+
+perl_eval {{ sub joinarray { return join(',', @_); }   }} 
+is (perl "joinarray" array)  "monday,tuesday,wednesday,thursday,friday,saturday,sunday"
+
+#define array in perl space and link to it from here, by name
+perl_eval {{ @letters = qw(a b c d e f g); }}
+array set_from_name "letters"
+is array:0 "a"
+is array:1 "b"
+is (perl "joinarray" array) "a,b,c,d,e,f,g"
+

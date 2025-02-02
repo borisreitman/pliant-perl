@@ -1,0 +1,39 @@
+module "/pliant/language/unsafe.pli"
+module "/pliant/language/compiler.pli"
+module "scalar.pli"
+module "../cperl.pli"
+
+# not defining any real types, but defining function to take a perl reference 
+# from perl object
+
+public
+
+# these are implemented as functions because they wrap 
+# a value
+
+# check if something is a ref of a particular type
+
+method ref is_hashref -> answer
+  arg PerlScalar ref
+  arg CBool answer
+  var Int reftype := lperl_SVTYPE lperl_SvRV:( ref:sv )
+  answer := reftype = lperl_SVt_PVHV
+
+method ref is_arrayref -> answer
+  arg PerlScalar ref
+  arg CBool answer
+  var Int reftype
+  reftype := lperl_SVTYPE lperl_SvRV:( ref:sv )
+  answer := reftype = lperl_SVt_PVAV
+
+method ref is_blessed -> answer
+  arg PerlScalar ref
+  arg CBool answer
+  var Int reftype := lperl_SVTYPE ref:sv
+  answer := reftype = lperl_SVt_PVMG
+
+method ref is_coderef -> answer
+  arg PerlScalar ref
+  arg CBool answer
+  var Int reftype := lperl_SVTYPE ref:sv
+  answer := reftype = lperl_SVt_PVCV

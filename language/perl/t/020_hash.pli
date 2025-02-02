@@ -1,0 +1,21 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+module "/pliantx/test/test.pli"
+
+plan_tests 2
+gvar PerlHash hash
+
+hash:"one" := "the one"
+hash:"two" := "hello" 
+
+gvar Str key
+gvar PerlScalar value
+
+gvar (Dictionary Str Str) pliant_hash
+
+each value hash PerlScalar key key
+  pliant_hash insert key value
+
+is pliant_hash:"one" "the one"
+is pliant_hash:"two" "hello"

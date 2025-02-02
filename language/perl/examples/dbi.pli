@@ -1,0 +1,27 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+
+perl_eval {{ use DBI; }} 
+
+gvar PerlScalar dbh
+gvar Str data_source := "dbi:Pg:dbname=test_db"
+gvar Str data_username := ""
+gvar Str data_password := ""
+
+# peculiar syntax to call a static method connect (as in DBI->connect)
+dbh := perl_static DBI connect data_source data_username data_password
+
+gvar PerlScalar ref_records
+ref_records := perl dbh selectall_arrayref "select * from products;"
+
+gvar PerlArray records := ref_records array
+gvar PerlArray record
+
+for (gvar Int i) 0 records:size-1
+  console "Record " i eol
+  record := records:i:array
+  for (gvar Int j) 0 record:size-1
+    console j ": "  record:j eol
+  
+perl dbh disconnect

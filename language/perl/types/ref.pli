@@ -1,0 +1,51 @@
+module "/pliant/language/unsafe.pli"
+module "/pliant/language/compiler.pli"
+module "scalar.pli"
+module "array.pli"
+module "hash.pli"
+module "../cperl.pli"
+submodule "ref_test.pli"
+
+# not defining any real types, but defining function to take a perl reference 
+# from perl object
+
+public
+
+# these are implemented as functions because they wrap 
+# a value
+
+function perl_ref hash -> ref
+  arg PerlHash hash
+  arg PerlScalar ref
+  ref _set (lperl_newRV_inc hash:hv)
+  
+function perl_ref array -> ref
+  arg PerlArray array
+  arg PerlScalar ref
+  ref _set (lperl_newRV_inc array:av)
+  #console "DEBUG _ref array: ref = " address_to_int:(ref:sv) eol
+
+function perl_ref scalar -> ref
+  arg PerlScalar scalar
+  arg PerlScalar ref
+  ref _set (lperl_newRV_inc scalar:sv)
+
+# these are implemented as methods because they extract an embedded value
+
+method ref scalar -> retval_scalar
+  arg PerlScalar ref
+  arg PerlScalar retval_scalar
+  var SV sv := lperl_SvRV ref:sv
+  retval_scalar _set sv
+
+# blessing
+
+method ref bless package_name
+  arg PerlScalar ref package_name
+  # we need to retrieve package_name's stash
+
+  var PerlHash stash
+  stash set_hv (lperl_gv_stashpv (cast package_name Str) 1)
+
+  # ok, now bless
+  lperl_sv_bless ref:sv stash:hv

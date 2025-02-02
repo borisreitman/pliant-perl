@@ -1,0 +1,24 @@
+module "/pliant/language/unsafe.pli"
+module "/pliant/language/compiler.pli"
+
+gvar Int pliant_perl_version := 0
+gvar Int pliant_perl_minor_version := 1
+
+export pliant_perl_version
+export pliant_perl_minor_version
+
+submodule "perl/interpreter.pli"
+submodule "perl/types.pli"
+submodule "perl/call.pli"
+submodule "perl/callback.pli"
+submodule "perl/dump.pli"
+submodule "perl/util.pli"
+
+function 'perl init' p fh
+  arg Address p ; arg Int fh
+  perl_prepare
+
+'perl init' null 0
+gvar DelayedAction restore 
+restore function :>  the_function 'perl init' Address Int
+pliant_restore_actions append addressof:restore

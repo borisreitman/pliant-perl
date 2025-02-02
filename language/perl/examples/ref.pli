@@ -1,0 +1,41 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+
+perl_eval {{ 
+  sub show_array { 
+    my $rl_list = shift; 
+    print join(",", @$rl_list), "\n"; 
+  \}}} 
+
+gvar PerlScalar scalar1
+gvar PerlScalar scalar2
+scalar1 := "a"
+scalar2 := perl_ref scalar1
+scalar1 := "b"
+console "Scalar2 (should be 'b') = " scalar2:scalar eol
+
+gvar PerlArray a
+a 0 := 10 
+a 1 := 20 
+
+
+gvar PerlScalar ref
+
+ref := perl_ref a 
+
+# deref 
+console ref:array:0 eol
+ref:array:0 := "50"
+
+for (gvar Int i) 0 (ref:array:size-1)
+  console i "=>" ref:array:i eol
+ 
+## check for hash
+gvar PerlHash h
+h "nothing" := 0 
+h "infinity" := 100000
+ref := perl_ref h
+
+console "nothing => " ref:hash:"nothing" eol
+console "infinity => " ref:hash:"infinity" eol

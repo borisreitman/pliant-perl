@@ -1,0 +1,77 @@
+# this shows how to use the WxWindows C++ library through its Perl binding
+
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+
+perl_eval {{ 
+  use strict; 
+  use Wx; 
+  use Data::Dumper; 
+
+  # every Wx program must have a Wx::App-derived class
+  package MyApp; 
+  use vars qw(@ISA); 
+  @ISA = qw(Wx::App); }}
+
+perl_function MyApp_OnInit self -> retval
+  arg PerlScalar self retval
+  var PerlScalar frame := perl_new MyFrame # instantiate custom frame
+  self SetTopWindow frame
+  frame Show 1
+  retval := 1 # return true
+
+perl_define "MyApp::OnInit" MyApp_OnInit 
+
+# customize the frame by deriving from Wx::Frame
+perl_eval {{ 
+  package MyFrame; 
+  use Wx::Event; 
+  @MyFrame::ISA = qw(Wx::Frame); }}
+
+# bring some constants over into pliant space
+gvar PerlScalar wxDefaultPosition := perl "Wx::wxDefaultPosition"
+gvar PerlScalar wxITALIC_FONT     := perl "Wx::wxITALIC_FONT"
+
+# helper function to create a coordinate
+# all this is is an array-ref with two elements
+function wx_vec x y -> point
+  arg Float x y
+  arg PerlScalar point
+  var PerlArray pair
+  pair 0 := x
+  pair 1 := y
+  point := perl_ref pair
+
+perl_function MyFrame_OnPaint self event -> retval
+  arg PerlScalar self event retval
+
+  # create a device context (DC) used for drawing
+  var PerlScalar dc := perl_new "Wx::PaintDC" self
+
+  # do stuff with DC, by calling methods implemented in perl
+  dc SetFont wxITALIC_FONT
+  dc DrawText "Hello, world!" 10 10
+
+# tell Perl that implementation for MyFrame::OnPaint is at the Pliant side
+perl_define "MyFrame::OnPaint" MyFrame_OnPaint 
+
+perl_function new_MyFrame classname -> self
+  arg PerlScalar classname self
+
+  # new frame with no parent, id -1, title 'Hello, world!'
+  # placed at default position, has size 350, 100
+  # note: must use perl_super to call the parent's class new method
+  self := perl_super MyFrame new perl_undef -1 "Hello, world!" wxDefaultPosition (wx_vec 350 100)
+
+  #self bless   # already blessed
+
+  # declare that all paint events will be handled with the OnPaint method
+  perl 'Wx::Event::EVT_PAINT' self perl_callback:MyFrame_OnPaint 
+
+# tell Perl that implementation for MyFrame::new is at the Pliant side
+perl_define "MyFrame::new" new_MyFrame 
+
+# MAIN:
+gvar PerlScalar app := perl_new MyApp
+app MainLoop

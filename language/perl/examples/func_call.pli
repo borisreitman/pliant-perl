@@ -1,0 +1,19 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+
+perl_eval {{ 
+  sub double { 
+    my $x = shift; 
+    print "now in double: arg = $x\n"; 
+    2*$x; 
+  \}}} 
+
+gvar PerlScalar scalar
+scalar := perl "double" 3
+
+console scalar eol  
+scalar := perl double scalar
+console scalar eol  
+
+perl_dump_scalar scalar

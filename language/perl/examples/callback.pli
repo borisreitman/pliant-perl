@@ -1,0 +1,34 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+
+perl_eval {{ 
+  sub run_callback { 
+    my $sub = $_[0]; 
+    print "in run_callback $sub\n"; 
+    my @a = &$sub("a","b","c"); 
+    print "retval = @a\n";   
+  }
+}}
+
+function hello array -> retval
+  arg_rw PerlArray array
+  arg PerlArray retval
+
+  console "Inside hello" eol
+  each (var PerlScalar parameter) array
+    console "Got arg = " parameter eol
+
+  # set return value
+  retval:0 := 1
+  retval:1 := "a"
+
+# perl_callback creates anonymous subroutines
+#perl run_callback perl_callback:(the_function hello PerlArray -> PerlArray)
+perl run_callback perl_callback:hello
+
+# perl_define creates named subroutines
+#perl_define "hello" (the_function hello PerlArray -> PerlArray)
+perl_define "hello" hello
+perl_eval "hello(1 .. 5);"
+

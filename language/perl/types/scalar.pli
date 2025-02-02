@@ -1,0 +1,258 @@
+module "/pliant/language/compiler.pli"
+module "/pliant/language/unsafe.pli"
+module "../cperl.pli"
+
+public
+
+# PerlScalar
+
+type PerlScalar
+  field SV sv 
+  #field Int dummy
+
+function build s
+  arg_w PerlScalar s
+  s:sv := perl_sv_undef
+
+method s reset
+  arg_w PerlScalar s
+  s:sv := perl_sv_undef
+
+method s _dump_sv
+  arg PerlScalar s
+  console "SV = " address_to_int:( s:sv ) eol
+
+function deepcopy src dest
+  arg   PerlScalar src
+  arg_w PerlScalar dest
+  if src:sv = perl_sv_undef
+    dest:sv := perl_sv_undef
+  else
+    dest:sv := lperl_newSV
+    lperl_sv_setsv dest:sv src:sv
+    if dest:sv <> perl_sv_undef
+      lperl_SvREFCNT_inc dest:sv # increment ref count
+
+function copy src dest
+  arg   PerlScalar src
+  arg_w PerlScalar dest
+  deepcopy src dest
+
+function destroy s
+  arg_w PerlScalar s 
+  if s:sv <> perl_sv_undef
+    lperl_SvREFCNT_dec s:sv 
+    s:sv := perl_sv_undef
+
+function perl_defined s -> bool
+  arg_r PerlScalar s  ; arg Bool bool
+  bool := s:sv <> perl_sv_undef
+
+method s _mortalize
+  arg_rw PerlScalar s 
+  if s:sv <> perl_sv_undef
+     lperl_SvREFCNT_inc s:sv 
+
+method s _set sv
+  arg_rw PerlScalar s
+  arg SV sv
+  if s:sv <> perl_sv_undef   # already own an sv
+    lperl_SvREFCNT_dec s:sv
+    s:sv := perl_sv_undef
+  if sv <> perl_sv_undef
+    s:sv := sv
+    lperl_SvREFCNT_inc s:sv 
+
+#function 'cast PerlScalar' sv -> scalar
+#  arg Address sv
+#  arg PerlScalar scalar 
+#  implicit
+#  scalar _set sv 
+#
+#function 'cast Address' scalar -> sv
+#  arg Address sv
+#  arg PerlScalar scalar 
+#  implicit
+#  sv := scalar sv 
+
+# Casting to and from PerlScalar
+
+function 'cast Str' s -> str
+  arg PerlScalar s
+  arg Str str
+  implicit
+  str := shunt perl_defined:s (lperl_SvPV_nolen s:sv) ""
+
+method s 'to string' options -> str
+  arg PerlScalar s
+  arg Str options
+  arg Str str
+  str := shunt perl_defined:s (lperl_SvPV_nolen s:sv) ""
+
+function 'cast Int' s -> integer
+  arg PerlScalar s
+  arg Int integer
+  implicit
+  integer := shunt perl_defined:s (lperl_SvIV s:sv) 0
+
+function 'cast Bool' s -> bool
+  arg PerlScalar s
+  arg Bool bool
+  implicit
+  if s:sv = perl_sv_undef
+    bool := false
+  else
+    var Str str := lperl_SvPV_nolen s:sv
+    if str = ""
+      bool := false
+    eif str = "0"
+      var Int integer := lperl_SvIV s:sv 
+      bool := integer <> 0
+    else 
+      bool := true
+
+function 'cast Float' s -> realnumber
+  arg PerlScalar s
+  arg Float realnumber
+  implicit
+  lperl_sv2nv s:sv realnumber
+
+function _set_scalar_value s n
+  arg_rw PerlScalar s
+  arg Int n
+  if s:sv = perl_sv_undef 
+    var SV sv
+    sv := lperl_newSViv n 
+    s _set sv
+  else
+    lperl_sv_setiv s:sv n 
+
+function _set_scalar_value s nn
+  arg_rw PerlScalar s
+  arg uInt nn
+  var Int n := (cast nn Int)
+  if s:sv = perl_sv_undef 
+    var SV sv
+    sv := lperl_newSViv n 
+    s _set sv
+  else
+    lperl_sv_setiv s:sv n 
+
+function _set_scalar_value s realnumber
+  arg_rw PerlScalar s
+  arg Float realnumber
+  if s:sv = perl_sv_undef 
+    s:sv := lperl_newSV
+  if s:sv <> perl_sv_undef 
+    lperl_sv_setnv s:sv realnumber 
+
+function _set_scalar_value s str
+  arg_rw PerlScalar s
+  arg Str str
+  if s:sv = perl_sv_undef 
+    var SV sv
+    sv := lperl_newSVpv str str:len
+    s _set sv
+  else
+    var SV sv := s:sv
+    lperl_sv_setpv sv str
+
+function 'cast PerlScalar' bool -> s
+  arg Bool bool
+  arg PerlScalar s
+  weak_definition
+  extension
+  s:sv := perl_sv_undef # FIXME: just in case, initialize
+  if bool 
+    _set_scalar_value s 1
+
+function 'cast PerlScalar' n -> s
+  arg Int n
+  arg PerlScalar s
+  weak_definition
+  extension
+  s:sv := perl_sv_undef # FIXME: just in case, initialize
+  _set_scalar_value s n
+
+
+function 'cast PerlScalar' n -> s
+  arg uInt n
+  arg PerlScalar s
+  weak_definition
+  extension
+  s:sv := perl_sv_undef # FIXME: just in case, initialize
+  _set_scalar_value s n
+
+function 'cast PerlScalar' realnumber -> s
+  arg Float realnumber
+  arg PerlScalar s
+  weak_definition
+  extension
+  s:sv := perl_sv_undef # FIXME: just in case, initialize
+  _set_scalar_value s realnumber
+
+function 'cast PerlScalar' str -> s
+  arg Str str 
+  arg PerlScalar s
+  weak_definition
+  extension
+  s:sv := perl_sv_undef # FIXME: just in case, initialize
+  _set_scalar_value s str
+
+function compare scalar1 scalar2 -> retval
+  arg PerlScalar scalar1 scalar2 
+  arg Int retval
+  var Int status
+  status := lperl_sv_cmp scalar1:sv scalar2:sv
+  retval := shunt status = 0 compare_equal status = 1 compare_superior status = -1 compare_inferior compare_unknown
+    
+#FIXME: this implementation is ugly...
+meta ':=' e
+  always_strong_definition
+  if e:size <> 2 
+    return
+  #console "e:size =" e:size       eol
+  #console "e:0    =" e:0:ident    eol
+  #console "e:0:0  =" e:0:0:ident  eol
+  #console "e:1    =" e:1:ident    eol
+  var Link:Expression scalar_expr :> expression ident e:0:ident near e
+  scalar_expr compile ?
+  if not (scalar_expr:result:type = PerlScalar)
+    return
+
+  e:1 compile ? 
+  #console "Got type of e:1 = " e:1:result:type:name eol
+
+  if (e:1:result:type = Str)
+    e suckup e:1
+    e suckup scalar_expr
+    e add (instruction (the_function _set_scalar_value PerlScalar Str) scalar_expr:result e:1:result)
+    e set_void_result
+  eif (e:1:result:type = Char)  # could be Str
+    if ( e:1 cast Str )
+      e suckup e:1
+      e suckup scalar_expr
+      e add (instruction (the_function _set_scalar_value PerlScalar Str) scalar_expr:result e:1:result)
+      e set_void_result
+  eif (e:1:result:type = Address)  # could be Str
+    if ( e:1 cast Str )
+      e suckup e:1
+      e suckup scalar_expr
+      e add (instruction (the_function _set_scalar_value PerlScalar Str) scalar_expr:result e:1:result)
+      e set_void_result
+  eif (e:1:result:type = Float)
+    e suckup e:1
+    e suckup scalar_expr
+    e add (instruction (the_function _set_scalar_value PerlScalar Float) scalar_expr:result e:1:result)
+    e set_void_result
+  eif (e:1:result:type = Int)
+    e suckup e:1
+    e suckup scalar_expr
+    e add (instruction (the_function _set_scalar_value PerlScalar Int) scalar_expr:result e:1:result)
+    e set_void_result
+  eif (e:1:result:type = uInt)
+    e suckup e:1
+    e suckup scalar_expr
+    e add (instruction (the_function _set_scalar_value PerlScalar uInt) scalar_expr:result e:1:result)
+    e set_void_result
+

@@ -1,0 +1,79 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliantx/test/test.pli"
+plan_tests 9
+
+is  {{ Hello
+}}+{{
+bye}} " Hello[lf][lf]bye"
+
+function get1 -> str
+  arg Str str
+  function inner -> str
+    arg Str str
+    str := {{ hello be 
+        autiful
+           etet world }} + "!" + {{ and 
+ one more }}
+  str := inner
+is get1 " hello be [lf]        autiful[lf]           etet world ! and [lf] one more "
+
+function get2 -> str
+  arg Str str
+  str := {{ hello be 
+autiful
+           etet world }} + "!" + {{ and 
+ one more }}
+is get2 " hello be [lf]autiful[lf]           etet world ! and [lf] one more "
+
+is {{ Hello
+Brave 
+ New World
+}} + "!" " Hello[lf]Brave [lf] New World[lf]!"
+
+is {{ Hello
+  Brave 
+New World
+}} + "!" " Hello[lf]  Brave [lf]New World[lf]!"
+
+function get3 -> str
+  arg Str str
+  str := {{ hello be 
+ autiful
+            etet world }} + "!" + {{ and 
+  one more }}
+
+is get3 " hello be [lf] autiful[lf]            etet world ! and [lf]  one more "
+
+function get4 -> str
+  arg Str str
+  str := {{ hello be 
+ autiful
+            etet world }} + "!" + {{ and 
+  one more }}
+is get4 " hello be [lf] autiful[lf]            etet world ! and [lf]  one more "
+
+function get5 -> str
+  arg Str str
+  str := {{ hello be 
+ autiful
+            etet world }} + "!" + {{ and 
+  one more }} + {{ again, extra
+ stuff }} 
+
+is get5 " hello be [lf] autiful[lf]            etet world ! and [lf]  one more  again, extra[lf] stuff "
+
+
+is {{
+root:x:0:
+daemon:x:1:
+bin:x:2:
+sys:x:3:
+adm:x:4:boris
+tty:x:5:
+slocate:x:111:
+saned:x:112:
+gdm:x:113:
+winsoft:x:1001:boris
+clamav:x:114:
+sqlrelay:x:1004:
+}} "[lf]root:x:0:[lf]daemon:x:1:[lf]bin:x:2:[lf]sys:x:3:[lf]adm:x:4:boris[lf]tty:x:5:[lf]slocate:x:111:[lf]saned:x:112:[lf]gdm:x:113:[lf]winsoft:x:1001:boris[lf]clamav:x:114:[lf]sqlrelay:x:1004:[lf]"

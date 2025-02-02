@@ -1,0 +1,103 @@
+module "/pliantx/lexer/multiline_string.pli"
+module "/pliant/language/compiler.pli"
+module "/pliantx/language/perl.pli"
+module "/pliantx/test/test.pli"
+plan_tests 42
+
+perl_eval {{ 
+  sub test_retvalue {
+    return @_;
+  }
+  sub run_callback { 
+    my $sub = $_[0]; 
+    my @a = $sub->(qw(a b c)); 
+    return @a; \}}}
+
+gvar Array:Str global_array
+
+function hello array -> retval
+  arg_rw PerlArray array
+  arg PerlArray retval
+
+  global_array size := array size
+  var Int count := 0
+  for (var Int index) 0 array:size-1
+    global_array index := array:index
+
+  retval:0 := "abrakadabra"
+  retval:1 := 3
+
+function main
+  var Array:Int yyy
+  yyy size := 2
+  yyy 0 := 10
+  yyy 1 := 20
+  yyy size := 1
+  is yyy:size 1
+  var PerlArray array
+  array 0 := "apple"
+  array 1 := "orange"
+  array 2 := "banana"
+  is array:0 "apple"
+  is array:1 "orange"
+  is array:2 "banana"
+  is array:size 3
+  var PerlScalar s := array:pop
+  is s "banana"
+  is array:size 2
+
+  var PerlArray retval
+  retval := perl test_retvalue "a" "b" "c"
+  is retval:size 3
+  is retval:0 "a"
+  is retval:1 "b"
+  is retval:2 "c"
+  retval := perl test_retvalue "x" "y"
+  is retval:size 2
+  is retval:0 "x"
+  is retval:1 "y"
+  retval := perl test_retvalue 2 "c"
+  is retval:size 2
+  is retval:0 2
+  is retval:1 "c"
+
+  var PerlList list := perl run_callback perl_callback:(the_function hello PerlArray -> PerlArray)
+  is list:list:size 2
+  retval := list
+  is retval:size 2
+  is retval:0 "abrakadabra"
+  is retval:1 3
+  is global_array:0 "a"
+  is global_array:1 "b"
+  is global_array:2 "c"
+  ok true
+
+  retval := perl test_retvalue "x" "y"
+  is retval:size 2
+  is retval:0 "x"
+  is retval:1 "y"
+
+  is retval:2 ""
+  is retval:3 ""
+
+  var PerlScalar callback := perl_callback_inperl "main::test_retvalue"
+  var PerlArray list2 := perl run_callback callback
+  is list2:size 3
+  is list2:0 "a"
+  is list2:1 "b"
+  is list2:2 "c"
+
+  var PerlScalar callback := perl_callback "main::test_retvalue"
+  var PerlArray list3 := perl run_callback callback
+  is list3:size 3
+  is list3:0 "a"
+  is list3:1 "b"
+  is list3:2 "c"
+
+  var PerlScalar callback := perl_callback 'main::test_retvalue'
+  var PerlArray list4 := perl run_callback callback
+  is list4:size 3
+  is list4:0 "a"
+  is list4:1 "b"
+  is list4:2 "c"
+main

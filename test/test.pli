@@ -1,0 +1,29 @@
+module "/pliant/language/unsafe.pli"
+public
+function is_true bool 
+  arg CBool bool
+  console (shunt bool "ok" "not ok") eol
+
+function ok bool -> retval
+  arg CBool bool 
+  arg Bool retval
+  retval := bool
+  console (shunt bool "ok" "not ok") eol
+
+function is observed expected -> bool
+  arg Float observed expected ; arg CBool bool
+  if abs:(observed - expected) >= 0.01
+    console "not ok [lf]#expected " string:expected " but got " (replace string:observed "[lf]" "[lf]#") eol
+  else
+    console "ok" eol
+
+function is observed expected -> bool
+  arg Str observed expected ; arg CBool bool
+  if observed <> expected 
+    console "not ok [lf]#expected " string:expected " but got " (replace string:observed "[lf]" "[lf]#") eol
+  else
+    console "ok" eol
+
+function plan_tests num_tests
+  arg Int num_tests
+  console eol "1.." num_tests eol
